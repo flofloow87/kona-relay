@@ -1,0 +1,20 @@
+name: build-ipa
+on: [push, workflow_dispatch]
+jobs:
+  ipa:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - run: xcodegen generate
+      - run: |
+          xcodebuild -project KonaRelay.xcodeproj -target KonaRelay -configuration Release -sdk iphoneos \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+      - run: |
+          mkdir Payload
+          cp -R build/Release-iphoneos/KonaRelay.app Payload/
+          zip -qry KonaRelay.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KonaRelay-ipa
+          path: KonaRelay.ipa
