@@ -76,6 +76,13 @@ jobs:
              "appPermissions": {"entitlements": [], "privacy": {}}}],
            "news": []}
           JSON
+          # copie dans le dépôt : adresse fixe sans redirection pour SideStore (raw.githubusercontent.com)
+          git config user.name "kona-relay-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase --autostash -q || true
+          git add source.json
+          git commit -q -m "Source SideStore $VERSION" || true
+          git push -q || true
       - uses: softprops/action-gh-release@v2
         if: ${{ !github.event.repository.private }}
         with:
