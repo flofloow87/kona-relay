@@ -9,8 +9,8 @@ settings:
     CODE_SIGNING_ALLOWED: "NO"
     CODE_SIGNING_REQUIRED: "NO"
     CODE_SIGN_IDENTITY: ""
-    MARKETING_VERSION: "2.6"
-    CURRENT_PROJECT_VERSION: "8"
+    MARKETING_VERSION: "2.7"
+    CURRENT_PROJECT_VERSION: "9"
 targets:
   KonaRelay:
     type: application
@@ -32,7 +32,8 @@ targets:
         CFBundleDisplayName: Kona Relay
         LSRequiresIPhoneOS: true
         UILaunchScreen: {}
-        UIBackgroundModes: [bluetooth-central, location]
+        UIBackgroundModes: [bluetooth-central, location, fetch]
+        BGTaskSchedulerPermittedIdentifiers: [fr.flo.konarelay.ha]
         NSSupportsLiveActivities: true
         NSSupportsLiveActivitiesFrequentUpdates: true
         NSLocationWhenInUseUsageDescription: "Ajout de la position de la Kona aux données envoyées à Home Assistant."

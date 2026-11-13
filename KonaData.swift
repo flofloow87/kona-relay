@@ -17,6 +17,7 @@ struct KonaData: Codable, Equatable {
     var charging = false
     var gear: String?
     var speed: Int?
+    var src: String?         // "ha" : lu dans Home Assistant (voiture au WiFi maison), sinon Bluetooth
     var date = Date()
 
     static func decode(_ d: Data) -> KonaData? {

@@ -51,6 +51,7 @@ struct ContentView: View {
     @AppStorage("homeOrder") private var homeOrder = ""
     @AppStorage("homeHidden") private var homeHidden = ""
     @StateObject private var meteo = Meteo.shared
+    @Environment(\.scenePhase) private var phase
 
     var body: some View {
         NavigationStack {
@@ -81,7 +82,10 @@ struct ContentView: View {
             }
             .animation(.spring(duration: 0.35), value: r.toast)
             .task { await meteo.refresh() }
-            .refreshable { await meteo.refresh(force: true) }
+            .refreshable { await r.fetchHA(); await meteo.refresh(force: true) }
+            .onChange(of: phase, initial: true) { _, p in
+                if p == .active { r.startHAPolling() } else { r.stopHAPolling(); if p == .background { BLERelay.scheduleHA() } }
+            }
             .confirmationDialog(confirm.map { "\($0.label) la Kona ?" } ?? "", isPresented: Binding(get: { confirm != nil }, set: { if !$0 { confirm = nil } }), titleVisibility: .visible) {
                 if let c = confirm { Button(c.label) { r.send(c) } }
                 Button("Annuler", role: .cancel) {}
@@ -127,7 +131,7 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Kona Electric").font(.largeTitle.bold())
                 if let d = r.data?.date {
-                    (Text("Lecture ") + Text(d, style: .relative) + Text(r.connected ? "" : " · dernière connue"))
+                    (Text("Lecture ") + Text(d, style: .relative) + Text(r.connected ? "" : r.data?.src == "ha" ? " · via Home Assistant" : " · dernière connue"))
                         .font(.footnote).foregroundStyle(Color.kSub)
                 } else {
                     Text("Aucune lecture pour l'instant").font(.footnote).foregroundStyle(Color.kSub)
@@ -145,8 +149,10 @@ struct ContentView: View {
     }
 
     private var linkPill: some View {
+        let viaHA = r.haSync.map { -$0.timeIntervalSinceNow < 180 } == true
         let (icon, txt, col): (String, String, Color) = r.connected
             ? ("antenna.radiowaves.left.and.right", "Bluetooth", .kBlue)
+            : viaHA ? ("house.fill", "Maison", .kTeal)
             : r.status.hasPrefix("Recherche") ? ("magnifyingglass", "Recherche", .kSub) : ("hourglass", "En attente", .kSub)
         return Label(txt, systemImage: icon)
             .font(.caption.weight(.semibold))

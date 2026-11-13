@@ -2,11 +2,18 @@ import CoreBluetooth
 import CoreLocation
 import CryptoKit
 import Foundation
+import BackgroundTasks
 import UIKit
 import UserNotifications
 import WidgetKit
 
 private struct HABackup: Decodable { var trips: [String: Trip]?; var charges: [String: Charge]? }
+/// État de la voiture publié par Home Assistant (etat.json) quand l'ESP32 est au WiFi maison
+private struct HAEtat: Decodable {
+    var lecture: String?
+    var soc: Double?; var socBms: Double?; var kw: Double?; var volts: Double?; var v12: Double?
+    var tMin: Int?; var tMax: Int?; var odo: Int?; var gear: String?; var charging: Bool?
+}
 
 final class BLERelay: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeripheralDelegate, CLLocationManagerDelegate {
     static let shared = BLERelay()
@@ -24,6 +31,8 @@ final class BLERelay: NSObject, ObservableObject, CBCentralManagerDelegate, CBPe
     @Published var otaProgress: Double?           // mise à jour du firmware en cours (0…1)
     @Published var eco = false                    // économie : batterie de l'iPhone faible
     @Published var pendingCount = 0               // sauvegardes en attente (zone blanche)
+    @Published var haSync: Date?                  // dernière lecture réussie dans Home Assistant
+    private var haTimer: Timer?
     @Published var espNets: (m: String, p: [String], url: Bool)?
     private var netQueue: [String] = []
     private var flushing = false
@@ -417,6 +426,39 @@ final class BLERelay: NSObject, ObservableObject, CBCentralManagerDelegate, CBPe
     }
 
     var lastLocation: CLLocation? { loc }
+
+    // MARK: Données via Home Assistant (voiture au WiFi maison, Bluetooth coupé)
+    func startHAPolling() {
+        haTimer?.invalidate()
+        haTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in Task { await self?.fetchHA() } }
+        Task { await fetchHA() }
+    }
+    func stopHAPolling() { haTimer?.invalidate(); haTimer = nil }
+
+    @MainActor func fetchHA() async {
+        guard !connected, let e: HAEtat = await haJSON("etat.json"), e.soc != nil || e.socBms != nil else { return }
+        let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let d = e.lecture.flatMap { f.date(from: $0) ?? ISO8601DateFormatter().date(from: $0) } ?? Date()
+        haSync = Date()
+        if let cur = data, cur.src != "ha", cur.date >= d { return }          // lecture Bluetooth plus récente
+        var k = KonaData()
+        k.soc = e.soc; k.socBms = e.socBms; k.kw = e.kw; k.volts = e.volts; k.v12d = e.v12
+        k.tMin = e.tMin; k.tMax = e.tMax; k.odo = e.odo; k.gear = e.gear; k.charging = e.charging ?? false
+        k.date = d; k.src = "ha"
+        let neuf = data?.date != d
+        data = k
+        if let x = try? JSONEncoder().encode(k) { ud.set(x, forKey: "lastData") }
+        widgetSave(k)
+        if neuf { WidgetCenter.shared.reloadAllTimelines() }
+    }
+
+    /// Rafraîchissement en arrière-plan (iOS choisit le moment) : met à jour l'app et les widgets
+    static let haTask = "fr.flo.konarelay.ha"
+    static func scheduleHA() {
+        let r = BGAppRefreshTaskRequest(identifier: haTask)
+        r.earliestBeginDate = Date(timeIntervalSinceNow: 20 * 60)
+        try? BGTaskScheduler.shared.submit(r)
+    }
 
     /// Lien konarelay://config?w=…&c=…&f=… (page « Configurer l'app iPhone » de Home Assistant)
     func applyConfig(_ url: URL) {

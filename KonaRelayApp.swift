@@ -1,3 +1,4 @@
+import BackgroundTasks
 import SwiftUI
 import UIKit
 
@@ -6,6 +7,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ app: UIApplication,
                      didFinishLaunchingWithOptions o: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         _ = BLERelay.shared
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: BLERelay.haTask, using: nil) { task in
+            BLERelay.scheduleHA()
+            let t = Task { await BLERelay.shared.fetchHA(); task.setTaskCompleted(success: true) }
+            task.expirationHandler = { t.cancel() }
+        }
         return true
     }
 }
