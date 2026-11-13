@@ -1,20 +1,87 @@
 name: build-ipa
-on: [push, workflow_dispatch]
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      bundle_url:
+        description: "Archive des sources à importer (tar.gz), facultatif"
+        required: false
+        default: ""
+      bundle_sha:
+        description: "SHA-256 de l'archive"
+        required: false
+        default: ""
 jobs:
   ipa:
     runs-on: macos-15
+    permissions:
+      contents: write
+    env:
+      VERSION: 2.6.${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4
-      - run: brew install xcodegen
+      # Import des sources envoyées par Claude (archive vérifiée par SHA-256), puis commit dans le dépôt
+      - name: Import des sources
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.bundle_url != '' }}
+        env:
+          URL: ${{ inputs.bundle_url }}
+          SHA: ${{ inputs.bundle_sha }}
+        run: |
+          curl -fsSL "$URL" -o /tmp/bundle.tgz
+          echo "$SHA  /tmp/bundle.tgz" | shasum -a 256 -c -
+          tar xzf /tmp/bundle.tgz
+          git config user.name "kona-relay-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- . ':!.github'
+          git commit -m "Sources de l'app (import)" || echo "rien de nouveau"
+          git push
+      - run: brew install xcodegen ldid
+      - name: Catalogue d'icônes
+        run: |
+          python3 -m pip install --quiet --break-system-packages pillow || python3 -m pip install --quiet --user pillow
+          python3 icon.py
+          mkdir -p Assets.xcassets/AppIcon.appiconset
+          cp AppIcon.png Assets.xcassets/AppIcon.appiconset/AppIcon.png
+          echo '{"info":{"author":"xcode","version":1}}' > Assets.xcassets/Contents.json
+          echo '{"images":[{"filename":"AppIcon.png","idiom":"universal","platform":"ios","size":"1024x1024"}],"info":{"author":"xcode","version":1}}' > Assets.xcassets/AppIcon.appiconset/Contents.json
       - run: xcodegen generate
       - run: |
           xcodebuild -project KonaRelay.xcodeproj -target KonaRelay -configuration Release -sdk iphoneos \
+            MARKETING_VERSION=$VERSION CURRENT_PROJECT_VERSION=${{ github.run_number }} \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
       - run: |
           mkdir Payload
           cp -R build/Release-iphoneos/KonaRelay.app Payload/
+          ldid -SKonaWidget.entitlements Payload/KonaRelay.app/PlugIns/KonaWidget.appex/KonaWidget
+          ldid -SKonaRelay.entitlements Payload/KonaRelay.app/KonaRelay
           zip -qry KonaRelay.ipa Payload
       - uses: actions/upload-artifact@v4
         with:
           name: KonaRelay-ipa
           path: KonaRelay.ipa
+      # Source SideStore : l'app propose elle-même la mise à jour (dépôt public nécessaire)
+      - name: Source SideStore
+        if: ${{ !github.event.repository.private }}
+        run: |
+          R=https://github.com/${{ github.repository }}/releases/download/build-${{ github.run_number }}
+          SIZE=$(stat -f%z KonaRelay.ipa)
+          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          cat > source.json <<JSON
+          {"name": "Kona Relay", "identifier": "fr.flo.konarelay.source",
+           "apps": [{"name": "Kona Relay", "bundleIdentifier": "fr.flo.konarelay", "developerName": "Flo",
+             "localizedDescription": "Relais Bluetooth de la Kona Electric vers Home Assistant.",
+             "iconURL": "$R/AppIcon.png", "tintColor": "#7FE0BF",
+             "versions": [{"version": "$VERSION", "buildVersion": "${{ github.run_number }}", "date": "$DATE",
+               "downloadURL": "$R/KonaRelay.ipa", "size": $SIZE, "minOSVersion": "18.0"}],
+             "appPermissions": {"entitlements": [], "privacy": {}}}],
+           "news": []}
+          JSON
+      - uses: softprops/action-gh-release@v2
+        if: ${{ !github.event.repository.private }}
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Kona Relay ${{ env.VERSION }}
+          files: |
+            KonaRelay.ipa
+            source.json
+            AppIcon.png
