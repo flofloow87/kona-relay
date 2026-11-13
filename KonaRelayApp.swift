@@ -14,6 +14,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 struct KonaRelayApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
     var body: some Scene {
-        WindowGroup { ContentView().environmentObject(BLERelay.shared) }
+        WindowGroup {
+            ContentView().environmentObject(BLERelay.shared).environmentObject(Store.shared)
+                .onOpenURL { BLERelay.shared.applyConfig($0) }
+        }
     }
 }
