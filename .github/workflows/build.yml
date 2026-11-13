@@ -52,6 +52,11 @@ jobs:
       - run: |
           mkdir Payload
           cp -R build/Release-iphoneos/KonaRelay.app Payload/
+          # numéro de build et version écrits dans l'app et le widget (SideStore les compare à la source)
+          for P in Payload/KonaRelay.app/Info.plist Payload/KonaRelay.app/PlugIns/KonaWidget.appex/Info.plist; do
+            plutil -replace CFBundleVersion -string "${{ github.run_number }}" "$P"
+            plutil -replace CFBundleShortVersionString -string "$VERSION" "$P"
+          done
           ldid -SKonaWidget.entitlements Payload/KonaRelay.app/PlugIns/KonaWidget.appex/KonaWidget
           ldid -SKonaRelay.entitlements Payload/KonaRelay.app/KonaRelay
           zip -qry KonaRelay.ipa Payload
