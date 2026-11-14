@@ -29,7 +29,7 @@ targets:
     info:
       path: Info.plist
       properties:
-        CFBundleDisplayName: Kona Relay
+        CFBundleDisplayName: Kona
         LSRequiresIPhoneOS: true
         UILaunchScreen: {}
         UIBackgroundModes: [bluetooth-central, location, fetch]

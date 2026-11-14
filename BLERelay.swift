@@ -462,7 +462,7 @@ final class BLERelay: NSObject, ObservableObject, CBCentralManagerDelegate, CBPe
     /// Relance la recherche / la connexion (appelé par le raccourci)
     func kick() { if cm.state == .poweredOn { centralManagerDidUpdateState(cm) } }
 
-    func notify(_ text: String, title: String = "Kona Relay", id: String = "etat") {
+    func notify(_ text: String, title: String = "Kona", id: String = "etat") {
         let c = UNMutableNotificationContent()
         c.title = title; c.body = text
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: id, content: c, trigger: nil))

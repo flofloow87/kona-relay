@@ -73,7 +73,7 @@ jobs:
           DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           cat > source.json <<JSON
           {"name": "Kona Relay", "identifier": "fr.flo.konarelay.source",
-           "apps": [{"name": "Kona Relay", "bundleIdentifier": "fr.flo.konarelay", "developerName": "Flo",
+           "apps": [{"name": "Kona", "bundleIdentifier": "fr.flo.konarelay", "developerName": "Flo",
              "localizedDescription": "Relais Bluetooth de la Kona Electric vers Home Assistant.",
              "iconURL": "$R/AppIcon.png", "tintColor": "#7FE0BF",
              "versions": [{"version": "$VERSION", "buildVersion": "${{ github.run_number }}", "date": "$DATE",
