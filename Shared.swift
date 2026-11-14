@@ -44,6 +44,8 @@ struct KonaActivityAttributes: ActivityAttributes {
         var cible = 80
         var tripKm = 0.0         // trajet en cours
         var tripConso = 0.0
+        var portail = ""         // départ de la maison (10 premières min) : état du portail et du garage, vide = non affiché
+        var garage = ""
     }
     var title: String
 }

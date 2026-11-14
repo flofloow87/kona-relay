@@ -17,7 +17,7 @@ jobs:
     permissions:
       contents: write
     env:
-      VERSION: 2.6.${{ github.run_number }}
+      VERSION: 2.8.${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4
       # Import des sources envoyées par Claude (archive vérifiée par SHA-256), puis commit dans le dépôt

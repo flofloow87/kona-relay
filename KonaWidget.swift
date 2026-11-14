@@ -135,13 +135,22 @@ struct KonaCarView: View {
             SocRing(soc: st.soc, width: 6).frame(width: 50, height: 50)
             VStack(alignment: .leading, spacing: 2) {
                 Text("≈ \(st.range) km").font(.title3.weight(.bold)).lineLimit(1).minimumScaleFactor(0.6)
-                Text(ligne).font(.caption.weight(.semibold)).foregroundStyle(st.charging ? Color.kTeal : .secondary)
+                Text(ligne).font(.caption.weight(.semibold)).foregroundStyle(couleur)
                     .lineLimit(1).minimumScaleFactor(0.6)
             }
             Spacer(minLength: 0)
         }
     }
+    private var couleur: Color {
+        if !st.portail.isEmpty || !st.garage.isEmpty { return st.portail == "closed" && st.garage == "closed" ? .kTeal : .kRed }
+        return st.charging ? .kTeal : .secondary
+    }
     private var ligne: String {
+        if !st.portail.isEmpty || !st.garage.isEmpty {
+            if st.portail == "closed" && st.garage == "closed" { return "Portail ✓ · Garage ✓" }
+            let nom = ["open": "ouvert", "opening": "s'ouvre", "closing": "se ferme", "closed": "✓"]
+            return "Portail \(nom[st.portail] ?? "?") · Garage \(nom[st.garage] ?? "?")"
+        }
         if st.charging { return st.minLeft > 0 ? "\(st.cible) % dans \(st.minLeft) min" : String(format: "Charge %.0f kW", abs(st.kw)) }
         if st.tripKm >= 1 {
             return "\(Int(st.tripKm)) km" + (st.tripConso > 0 ? String(format: " · %.1f kWh/100", st.tripConso).replacingOccurrences(of: ".", with: ",") : "")

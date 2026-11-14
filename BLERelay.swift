@@ -13,6 +13,7 @@ private struct HAEtat: Decodable {
     var lecture: String?
     var soc: Double?; var socBms: Double?; var kw: Double?; var volts: Double?; var v12: Double?
     var tMin: Int?; var tMax: Int?; var odo: Int?; var gear: String?; var charging: Bool?
+    var portail: String?; var portailT: String?; var garage: String?; var garageT: String?
 }
 
 final class BLERelay: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeripheralDelegate, CLLocationManagerDelegate {
@@ -31,6 +32,8 @@ final class BLERelay: NSObject, ObservableObject, CBCentralManagerDelegate, CBPe
     @Published var otaProgress: Double?           // mise à jour du firmware en cours (0…1)
     @Published var eco = false                    // économie : batterie de l'iPhone faible
     @Published var pendingCount = 0               // sauvegardes en attente (zone blanche)
+    private var depart: Date?                     // début du trajet (portail/garage affichés 10 min)
+    private var portes: (p: String, g: String)?
     @Published var haSync: Date?                  // dernière lecture réussie dans Home Assistant
     private var haTimer: Timer?
     @Published var espNets: (m: String, p: [String], url: Bool)?
@@ -202,6 +205,7 @@ final class BLERelay: NSObject, ObservableObject, CBCentralManagerDelegate, CBPe
         let mv = ["D", "R", "N"].contains(k.gear ?? "")
         if !quick { st.feed(k, loc: loc) }
         adaptGPS(mv)
+        if mv && !moving && (depart == nil || Date().timeIntervalSince(depart!) > 1800) { surveillerPortes() }
         widgetSave(k)
         if quick || mv != moving || Date().timeIntervalSince(lastWidget) > 300 {
             lastWidget = Date(); WidgetCenter.shared.reloadAllTimelines()
@@ -232,7 +236,46 @@ final class BLERelay: NSObject, ObservableObject, CBCentralManagerDelegate, CBPe
         return .init(soc: soc, range: st.range(soc) ?? 0, kw: k?.kw ?? 0, speed: k?.speed ?? 0,
                      gear: k?.gear ?? "–", charging: k?.charging ?? false, updated: Date(),
                      minLeft: eta?.min ?? 0, cible: eta?.cible ?? 80,
-                     tripKm: st.curTrip?.km ?? 0, tripConso: st.curTrip?.conso ?? 0)
+                     tripKm: st.curTrip?.km ?? 0, tripConso: st.curTrip?.conso ?? 0,
+                     portail: portesVisibles?.p ?? "", garage: portesVisibles?.g ?? "")
+    }
+
+    private var portesVisibles: (p: String, g: String)? {
+        guard let d = depart, Date().timeIntervalSince(d) < 600 else { return nil }
+        return portes
+    }
+
+    /// Départ : pendant 10 min, lit le portail et la porte de garage dans Home Assistant (toutes les 30 s).
+    /// Affiché seulement si l'un des deux a bougé dans les 20 min avant le départ (donc départ de la maison).
+    private func surveillerPortes() {
+        depart = Date(); portes = nil
+        let d0 = depart!
+        Task { @MainActor in
+            let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let date = { (s: String?) in s.flatMap { f.date(from: $0) ?? ISO8601DateFormatter().date(from: $0) } }
+            var maison: Bool?
+            while self.depart == d0, Date().timeIntervalSince(d0) < 600 {
+                if let e: HAEtat = await self.haJSON("etat.json"), let p = e.portail, let g = e.garage {
+                    if maison == nil {
+                        let t = [date(e.portailT), date(e.garageT)].compactMap { $0 }.max()
+                        maison = t.map { d0.timeIntervalSince($0) < 1200 } ?? false
+                        if maison == true { self.st.note("Départ de la maison : portail \(p), garage \(g)") }
+                    }
+                    if maison == false { return }
+                    let n = (p: p, g: g)
+                    if self.portes?.p != n.p || self.portes?.g != n.g {
+                        self.portes = n
+                        if Live.current != nil { self.lastLive = Date(); Live.update(self.liveState()) }
+                        if n.p == "open" || n.g == "open", Date().timeIntervalSince(d0) > 120 {
+                            self.notify(n.g == "open" ? "La porte de garage est restée ouverte" : "Le portail est resté ouvert",
+                                        title: "⚠️ Maison", id: "portes")
+                        }
+                    }
+                }
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+            }
+            if self.depart == d0, Live.current != nil { self.lastLive = Date(); Live.update(self.liveState()) }   // retire l'affichage
+        }
     }
 
     /// Recharge : minutes estimées jusqu'à l'objectif (puissance mesurée, ralentissement au-delà de 80 % en charge rapide)
