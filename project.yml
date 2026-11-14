@@ -15,7 +15,7 @@ targets:
   KonaRelay:
     type: application
     platform: iOS
-    sources: [KonaRelayApp.swift, BLERelay.swift, KonaData.swift, Store.swift, Live.swift, Shared.swift, ContentView.swift, SettingsView.swift, HistoryViews.swift, Insights.swift, Batterie12View.swift, StartIntent.swift, Assets.xcassets]
+    sources: [KonaRelayApp.swift, BLERelay.swift, RelayDonnees.swift, RelayCommandes.swift, RelayHA.swift, KonaData.swift, Store.swift, Live.swift, Shared.swift, ContentView.swift, SettingsView.swift, HistoryViews.swift, Insights.swift, Batterie12View.swift, StartIntent.swift, Assets.xcassets]
     dependencies:
       - target: KonaWidget
     entitlements:
