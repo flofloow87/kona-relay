@@ -50,13 +50,32 @@ struct KonaActivityAttributes: ActivityAttributes {
     var title: String
 }
 
+/// Apparence de l'app : sombre, clair ou auto (clair de 7 h à 19 h) ; accent turquoise ou rouge Kona.
+/// Les widgets et CarPlay restent sombres.
+enum Theme {
+    static var appex: Bool { Bundle.main.bundlePath.hasSuffix(".appex") }
+    static var mode: String { UserDefaults.standard.string(forKey: "theme") ?? "sombre" }
+    static var clair: Bool {
+        guard !appex else { return false }
+        switch mode {
+        case "clair": return true
+        case "auto": return (7..<19).contains(Calendar.current.component(.hour, from: Date()))
+        default: return false
+        }
+    }
+    static var rouge: Bool { !appex && UserDefaults.standard.string(forKey: "accent") == "rouge" }
+    static var accent: Color { rouge ? .kKona : .kTeal }
+    static var scheme: ColorScheme { clair ? .light : .dark }
+}
+
 extension Color {
-    static let kBg1 = Color(red: 0.04, green: 0.07, blue: 0.09)
-    static let kBg2 = Color(red: 0.07, green: 0.16, blue: 0.19)
-    static let kTeal = Color(red: 0.50, green: 0.88, blue: 0.75)
-    static let kGold = Color(red: 0.90, green: 0.77, blue: 0.44)
-    static let kBlue = Color(red: 0.45, green: 0.66, blue: 1.0)
-    static let kRed = Color(red: 0.95, green: 0.42, blue: 0.42)
-    static let kSub = Color.white.opacity(0.55)
+    static var kBg1: Color { Theme.clair ? Color(red: 0.95, green: 0.96, blue: 0.97) : Color(red: 0.04, green: 0.07, blue: 0.09) }
+    static var kBg2: Color { Theme.clair ? Color(red: 0.86, green: 0.90, blue: 0.93) : Color(red: 0.07, green: 0.16, blue: 0.19) }
+    static var kTeal: Color { Theme.clair ? Color(red: 0.08, green: 0.58, blue: 0.46) : Color(red: 0.50, green: 0.88, blue: 0.75) }
+    static var kGold: Color { Theme.clair ? Color(red: 0.72, green: 0.52, blue: 0.08) : Color(red: 0.90, green: 0.77, blue: 0.44) }
+    static var kBlue: Color { Theme.clair ? Color(red: 0.15, green: 0.40, blue: 0.85) : Color(red: 0.45, green: 0.66, blue: 1.0) }
+    static var kRed: Color { Theme.clair ? Color(red: 0.80, green: 0.18, blue: 0.18) : Color(red: 0.95, green: 0.42, blue: 0.42) }
+    static let kKona = Color(red: 0.86, green: 0.12, blue: 0.16)
+    static var kSub: Color { Theme.clair ? Color.black.opacity(0.55) : Color.white.opacity(0.55) }
     static func soc(_ v: Double?) -> Color { guard let v else { return .kSub }; return v < 20 ? .kRed : v < 50 ? .kGold : .kTeal }
 }

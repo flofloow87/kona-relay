@@ -18,8 +18,8 @@ struct Card<Content: View>: View {
         content
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(.white.opacity(0.07)))
+            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(Color.primary.opacity(0.07)))
     }
 }
 
@@ -50,6 +50,8 @@ struct ContentView: View {
     @AppStorage("cfgExtra") private var cfgExtra = 300
     @AppStorage("homeOrder") private var homeOrder = ""
     @AppStorage("homeHidden") private var homeHidden = ""
+    @AppStorage("theme") private var theme = "sombre"
+    @AppStorage("accent") private var accent = "turquoise"
     @StateObject private var meteo = Meteo.shared
     @Environment(\.scenePhase) private var phase
 
@@ -91,8 +93,9 @@ struct ContentView: View {
                 Button("Annuler", role: .cancel) {}
             }
         }
-        .preferredColorScheme(.dark)
-        .tint(.kTeal)
+        .preferredColorScheme(Theme.scheme)
+        .tint(Theme.accent)
+        .id(theme + accent)
     }
 
     @ViewBuilder private func carte(_ c: HomeCard) -> some View {
@@ -129,7 +132,7 @@ struct ContentView: View {
     private var header: some View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Kona Electric").font(.largeTitle.bold())
+                Text("Kona Electric").font(.largeTitle.bold()).foregroundStyle(Theme.rouge ? Color.kKona : Color.primary)
                 if let d = r.data?.date {
                     (Text("Lecture ") + Text(d, style: .relative) + Text(r.connected ? "" : r.data?.src == "ha" ? " · via Home Assistant" : " · dernière connue"))
                         .font(.footnote).foregroundStyle(Color.kSub)
@@ -170,7 +173,7 @@ struct ContentView: View {
         return Card {
             HStack(spacing: 18) {
                 ZStack {
-                    Circle().stroke(.white.opacity(0.08), lineWidth: 14)
+                    Circle().stroke(Color.primary.opacity(0.08), lineWidth: 14)
                     Circle().trim(from: 0, to: (soc ?? 0) / 100)
                         .stroke(AngularGradient(colors: [col.opacity(0.5), col], center: .center), style: StrokeStyle(lineWidth: 14, lineCap: .round))
                         .rotationEffect(.degrees(-90))
@@ -195,7 +198,7 @@ struct ContentView: View {
                     } else {
                         stat("Vitesse", d?.speed.map { "\($0) km/h" } ?? "—", "speedometer", .kBlue)
                     }
-                    stat("Rapport", d?.gear ?? "—", "car.side.fill", .white)
+                    stat("Rapport", d?.gear ?? "—", "car.side.fill", .primary)
                 }
             }
         }
@@ -252,14 +255,14 @@ struct ContentView: View {
                         } label: {
                             VStack(spacing: 8) {
                                 ZStack {
-                                    Circle().fill(LinearGradient(colors: [.white.opacity(0.16), .white.opacity(0.04)], startPoint: .top, endPoint: .bottom))
+                                    Circle().fill(LinearGradient(colors: [Color.primary.opacity(0.16), Color.primary.opacity(0.04)], startPoint: .top, endPoint: .bottom))
                                     Circle().stroke(color(c).opacity(0.45), lineWidth: 1.5)
                                     if r.busy == c { ProgressView().tint(color(c)) }
                                     else { Image(systemName: c.icon).font(.title2).foregroundStyle(color(c)) }
                                 }
                                 .frame(width: 62, height: 62)
                                 .shadow(color: color(c).opacity(0.25), radius: 10)
-                                Text(c.label).font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.85))
+                                Text(c.label).font(.caption.weight(.semibold)).foregroundStyle(Color.primary.opacity(0.85))
                             }
                             .frame(maxWidth: .infinity)
                         }
@@ -317,35 +320,47 @@ struct ContentView: View {
                 NavigationLink { TripsView().environmentObject(st) } label: {
                     navRow("map.fill", "Trajets", st.curTrip != nil ? "en cours" : "\(st.trips.count)", .kBlue)
                 }
-                Divider().overlay(.white.opacity(0.08))
+                Divider().overlay(Color.primary.opacity(0.08))
                 NavigationLink { RecurringView().environmentObject(st) } label: {
                     navRow("arrow.triangle.swap", "Trajets répétés", "", .kBlue)
                 }
-                Divider().overlay(.white.opacity(0.08))
+                Divider().overlay(Color.primary.opacity(0.08))
                 NavigationLink { CalendarView().environmentObject(st) } label: {
                     navRow("calendar", "Calendrier", "", .kBlue)
                 }
-                Divider().overlay(.white.opacity(0.08))
+                Divider().overlay(Color.primary.opacity(0.08))
                 NavigationLink { SpeedConsoView().environmentObject(st) } label: {
                     navRow("speedometer", "Conso et vitesse", "", .kGold)
                 }
-                Divider().overlay(.white.opacity(0.08))
+                Divider().overlay(Color.primary.opacity(0.08))
                 NavigationLink { ChargesView().environmentObject(st).environmentObject(r) } label: {
                     navRow("ev.charger.fill", "Recharges", st.curCharge != nil ? "en cours" : "\(st.charges.count)", .kTeal)
                 }
-                Divider().overlay(.white.opacity(0.08))
+                Divider().overlay(Color.primary.opacity(0.08))
+                NavigationLink { BornesView().environmentObject(st) } label: {
+                    navRow("chart.line.uptrend.xyaxis", "Comparer les bornes", "", .kTeal)
+                }
+                Divider().overlay(Color.primary.opacity(0.08))
                 NavigationLink { BilansView().environmentObject(r) } label: {
                     navRow("chart.bar.fill", "Bilans mensuels", "", .kTeal)
                 }
-                Divider().overlay(.white.opacity(0.08))
+                Divider().overlay(Color.primary.opacity(0.08))
                 NavigationLink { SOHView().environmentObject(r) } label: {
                     navRow("bolt.batteryblock.fill", "Batterie haute tension", "", .kGold)
                 }
-                Divider().overlay(.white.opacity(0.08))
+                Divider().overlay(Color.primary.opacity(0.08))
                 NavigationLink { Batterie12View().environmentObject(r) } label: {
                     navRow("minus.plus.batteryblock.fill", "Batterie 12 V au repos", "", .kRed)
                 }
-                Divider().overlay(.white.opacity(0.08))
+                Divider().overlay(Color.primary.opacity(0.08))
+                NavigationLink { EntretienView() } label: {
+                    navRow("wrench.and.screwdriver.fill", "Carnet d'entretien", "", .kGold)
+                }
+                Divider().overlay(Color.primary.opacity(0.08))
+                NavigationLink { MaKonaView().environmentObject(r).environmentObject(st) } label: {
+                    navRow("car.fill", "Ma Kona", "", .kBlue)
+                }
+                Divider().overlay(Color.primary.opacity(0.08))
                 NavigationLink { LogView().environmentObject(st) } label: {
                     navRow("list.bullet.rectangle.portrait.fill", "Journal", "\(st.log.count)", .kGold)
                 }

@@ -303,6 +303,10 @@ struct HomeCharge: Decodable, Identifiable {
     var soc_debut: Double?
     var soc_fin: Double?
     var part_solaire: Double?
+    var kwh_hp: Double?
+    var kwh_hc: Double?
+    var kwh_solaire: Double?
+    var kwh_zendure: Double?
     var id: String { debut }
     var date: Date? { ISO8601DateFormatter().date(from: debut) ?? { let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return f.date(from: debut) }() }
 }
@@ -322,12 +326,19 @@ struct HomeChargesList: View {
                         Spacer()
                         Text(euros(c.cout)).font(.subheadline.weight(.semibold))
                     }
-                    Text("\(fr(c.soc_debut, 0)) → \(fr(c.soc_fin, 0)) % · \(fr(c.kwh_borne)) kWh · \(c.duree_min ?? 0) min" + (c.part_solaire.map { " · \(Int($0)) % solaire" } ?? ""))
+                    Text("\(fr(c.soc_debut, 0)) → \(fr(c.soc_fin, 0)) % · \(fr(c.kwh_borne)) kWh · \(c.duree_min ?? 0) min" + (c.kwh_hp == nil ? (c.part_solaire.map { " · \(Int($0)) % solaire" } ?? "") : ""))
                         .font(.caption).foregroundStyle(.secondary)
+                    if c.kwh_hp != nil { MixBar(c: c) }
                 }
             }
         } header: {
             Text("\(list.count) recharges · \(fr(list.compactMap(\.kwh_borne).reduce(0, +), 0)) kWh · \(euros(list.compactMap(\.cout).reduce(0, +)))")
+        } footer: {
+            let d = list.filter { $0.kwh_hp != nil }
+            if !d.isEmpty {
+                let t = { (k: KeyPath<HomeCharge, Double?>) in fr(d.compactMap { $0[keyPath: k] }.reduce(0, +), 0) }
+                Text("Origine (\(d.count) recharges détaillées) : HC \(t(\.kwh_hc)) kWh · HP \(t(\.kwh_hp)) kWh · solaire \(t(\.kwh_solaire)) kWh · batterie maison \(t(\.kwh_zendure)) kWh. La batterie maison est comptée au prix HC, le solaire gratuit.")
+            }
         }
         .task {
             list = (await r.haJSON("recharges_maison.json") as [HomeCharge]?) ?? []
@@ -345,7 +356,7 @@ struct PowerChart: View {
                 BarMark(x: .value("Minute", pts[i].m), y: .value("kW", pts[i].kw), width: .fixed(3))
                     .foregroundStyle(pts[i].kw < 0 ? Color.kTeal : (pts[i].kw > 30 ? Color.kRed : Color.kGold))
             }
-            RuleMark(y: .value("0", 0)).foregroundStyle(.white.opacity(0.2))
+            RuleMark(y: .value("0", 0)).foregroundStyle(Color.primary.opacity(0.2))
         }
         .chartXAxisLabel("min")
         .chartYAxisLabel("kW")

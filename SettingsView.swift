@@ -8,6 +8,8 @@ private func version(_ d: Data) -> String {
 }
 
 struct SettingsView: View {
+    @AppStorage("theme") private var theme = "sombre"
+    @AppStorage("accent") private var accent = "turquoise"
     @EnvironmentObject var r: BLERelay
     @Environment(\.dismiss) private var dismiss
     @AppStorage("webhook") private var webhook = ""
@@ -67,6 +69,19 @@ struct SettingsView: View {
                     Text("Recharge sur borne")
                 } footer: {
                     Text("Notification quand la Kona atteint ce niveau, puis à la fin de la recharge. L'iPhone doit rester à portée Bluetooth de la voiture (quelques dizaines de mètres).")
+                }
+
+                Section {
+                    Picker("Apparence", selection: $theme) {
+                        Text("Sombre").tag("sombre"); Text("Clair").tag("clair"); Text("Auto (clair 7 h–19 h)").tag("auto")
+                    }
+                    Picker("Couleur d'accent", selection: $accent) {
+                        Text("Turquoise").tag("turquoise"); Text("Rouge Kona").tag("rouge")
+                    }
+                } header: {
+                    Text("Thème")
+                } footer: {
+                    Text("Les widgets, l'activité en direct et CarPlay restent en sombre.")
                 }
 
                 Section {
@@ -165,7 +180,8 @@ struct SettingsView: View {
                 fw = d; fwName = url.lastPathComponent
             }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(Theme.scheme)
+        .tint(Theme.accent)
     }
 }
 
