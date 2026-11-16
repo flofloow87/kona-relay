@@ -53,6 +53,7 @@ final class Store: ObservableObject {
     private var cedStart: Double?, cecStart: Double?, cecCharge: Double?
     private var lastPt: CLLocation?
     private var pSince: Date?
+    private var kwhBase = 0.0
     private var notChg = 0
     private var lastKw: Double?
     private var unsaved = 0
@@ -102,9 +103,14 @@ final class Store: ObservableObject {
         let soc = k.soc ?? k.socBms
         if moving {
             if curTrip == nil {
-                curTrip = Trip(start: Date(), end: Date(), odoStart: k.odo, socStart: soc)
+                if let last = trips.first, Date().timeIntervalSince(last.end) < 300 {   // coupure Bluetooth : on reprend
+                    trips.removeFirst(); curTrip = last; kwhBase = last.kwh
+                    note("Reprise du trajet")
+                } else {
+                    curTrip = Trip(start: Date(), end: Date(), odoStart: k.odo, socStart: soc); kwhBase = 0
+                    note("Début de trajet")
+                }
                 cedStart = k.ced; cecStart = k.cec; lastPt = nil
-                note("Début de trajet")
             }
             pSince = nil
         } else if curTrip != nil {
@@ -115,7 +121,7 @@ final class Store: ObservableObject {
             t.end = Date()
             if let o = k.odo { t.odoEnd = o; if t.odoStart == nil { t.odoStart = o } }
             if let s = soc { t.socEnd = s }
-            if let d = k.ced, let c = k.cec, let d0 = cedStart, let c0 = cecStart { t.kwh = max(0, (d - d0) - (c - c0)) }
+            if let d = k.ced, let c = k.cec, let d0 = cedStart, let c0 = cecStart { t.kwh = kwhBase + max(0, (d - d0) - (c - c0)) }
             if let v = k.speed { t.maxKmh = max(t.maxKmh, v) }
             var sm = t.samples ?? []
             sm.append(TripSample(s: Int(Date().timeIntervalSince(t.start)), kw: k.kw ?? 0, soc: soc, kmh: k.speed))
