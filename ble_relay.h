@@ -1,4 +1,6 @@
 // Relais BLE vers l'app iPhone "Kona Relay" — NimBLE-Arduino 2.x (h2zero)
+// v5 (ws-2.5) : files d'attente (4 messages) pour les commandes et les accusés : une commande arrivée pendant qu'une
+//               autre attend n'est plus perdue ; seule la déconnexion de l'iPhone abonné coupe l'envoi des données
 // v4 : caractéristique OTA (firmware envoyé par l'iPhone, écriture chiffrée)
 // v3 : accusés de réception de la synchro des trajets (caractéristique ACK, non chiffrée)
 // v2 : caractéristique de commande (écriture chiffrée, appairage par code à 6 chiffres)
@@ -20,34 +22,52 @@ namespace kr {
 static NimBLEServer* srv = nullptr;
 static NimBLECharacteristic* data = nullptr;
 static volatile bool active = false, connected = false, ready = false;
-static volatile uint16_t conn = 0;
-static char pend[256];
-static volatile bool hasPend = false;
-static char ackBuf[32];
-static volatile bool hasAck = false;
+static volatile uint16_t conn = 0xFFFF;                   // iPhone abonné aux données
+static const uint8_t NQ = 4;                              // files : écrites par la tâche NimBLE, lues par loop()
+static char pend[NQ][256];
+static volatile uint8_t pendW = 0, pendR = 0;
+static char ackBuf[NQ][32];
+static volatile uint8_t ackW = 0, ackR = 0;
 static void (*otaSink)(const uint8_t*, size_t) = nullptr;   // fourni par le .ino
 
+template <size_t N>
+static void qPush(char (&q)[NQ][N], volatile uint8_t& w, volatile uint8_t& r, const uint8_t* d, size_t len) {
+  uint8_t i = w, nx = (i + 1) % NQ;
+  if (nx == r) return;                                    // file pleine : message ignoré
+  size_t n = len < N - 1 ? len : N - 1;
+  memcpy(q[i], d, n); q[i][n] = 0;
+  __sync_synchronize();
+  w = nx;
+}
+template <size_t N>
+static bool qTake(char (&q)[NQ][N], volatile uint8_t& w, volatile uint8_t& r, String& out) {
+  uint8_t i = r;
+  if (i == w) return false;
+  __sync_synchronize();
+  out = String(q[i]);
+  __sync_synchronize();
+  r = (i + 1) % NQ;
+  return true;
+}
+
 class SCb : public NimBLEServerCallbacks {
-  void onConnect(NimBLEServer*, NimBLEConnInfo& i) override { connected = true; conn = i.getConnHandle(); }
-  void onDisconnect(NimBLEServer*, NimBLEConnInfo&, int) override {
-    connected = false; ready = false;
+  void onConnect(NimBLEServer*, NimBLEConnInfo&) override { connected = true; }
+  void onDisconnect(NimBLEServer*, NimBLEConnInfo& i, int) override {
+    if (i.getConnHandle() == conn) { connected = false; ready = false; conn = 0xFFFF; }
     if (active) NimBLEDevice::startAdvertising();
   }
   uint32_t onPassKeyDisplay() override { return KR_PASSKEY; }
 };
 class WCb : public NimBLECharacteristicCallbacks {      // commande reçue (lien chiffré et authentifié)
   void onWrite(NimBLECharacteristic* ch, NimBLEConnInfo&) override {
-    if (hasPend) return;
-    std::string v = ch->getValue();
-    size_t n = v.size() < sizeof(pend) - 1 ? v.size() : sizeof(pend) - 1;
-    memcpy(pend, v.data(), n); pend[n] = 0; hasPend = true;
+    NimBLEAttValue v = ch->getValue();
+    qPush(pend, pendW, pendR, v.data(), v.size());
   }
 };
 class ACb : public NimBLECharacteristicCallbacks {      // accusé de l'app après envoi réussi à Home Assistant
   void onWrite(NimBLECharacteristic* ch, NimBLEConnInfo&) override {
-    std::string v = ch->getValue();
-    size_t n = v.size() < sizeof(ackBuf) - 1 ? v.size() : sizeof(ackBuf) - 1;
-    memcpy(ackBuf, v.data(), n); ackBuf[n] = 0; hasAck = true;
+    NimBLEAttValue v = ch->getValue();
+    qPush(ackBuf, ackW, ackR, v.data(), v.size());
   }
 };
 class OCb : public NimBLECharacteristicCallbacks {      // morceaux du firmware
@@ -58,11 +78,17 @@ class OCb : public NimBLECharacteristicCallbacks {      // morceaux du firmware
   }
 };
 class CCb : public NimBLECharacteristicCallbacks {
-  void onSubscribe(NimBLECharacteristic*, NimBLEConnInfo&, uint16_t v) override { ready = (v & 1); }
+  void onSubscribe(NimBLECharacteristic*, NimBLEConnInfo& i, uint16_t v) override {
+    if (v & 1) { conn = i.getConnHandle(); ready = true; }
+    else if (i.getConnHandle() == conn) ready = false;
+  }
 };
+
+inline void reset() { pendW = pendR = ackW = ackR = 0; conn = 0xFFFF; connected = false; ready = false; }
 
 inline void begin() {
   if (active) return;
+  reset();
   NimBLEDevice::init("KonaRelay");
   NimBLEDevice::setMTU(247);
   NimBLEDevice::setSecurityAuth(true, true, true);         // appairage, MITM, Secure Connections
@@ -89,23 +115,16 @@ inline void begin() {
 
 inline void end() {
   if (!active) return;
-  active = false; connected = false; ready = false;
+  active = false;
   NimBLEDevice::deinit(true);
   srv = nullptr; data = nullptr;
+  reset();                                                 // pas de commande périmée au prochain démarrage du BLE
 }
 
 // Commande en attente reçue de l'iPhone (texte), à traiter dans loop()
-inline bool take(String& out) {
-  if (!hasPend) return false;
-  out = String(pend); hasPend = false;
-  return true;
-}
+inline bool take(String& out) { return qTake(pend, pendW, pendR, out); }
 
-inline bool takeAck(String& out) {
-  if (!hasAck) return false;
-  out = String(ackBuf); hasAck = false;
-  return true;
-}
+inline bool takeAck(String& out) { return qTake(ackBuf, ackW, ackR, out); }
 
 // Envoie un JSON complet, découpé selon le MTU négocié. Renvoie false si l'iPhone n'est pas abonné.
 inline bool send(const String& j) {
