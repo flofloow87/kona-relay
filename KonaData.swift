@@ -36,7 +36,10 @@ struct KonaData: Codable, Equatable {
         k.amps = cur; k.volts = v; k.kw = cur * v / 1000
         k.tMax = Int(Int8(bitPattern: b[17])); k.tMin = Int(Int8(bitPattern: b[18]))
         k.v12 = Double(b[32]) / 10
-        k.charging = b[12] & 0x80 != 0
+        // Le bit 0x80 de l'octet 12 ne s'allume pas en charge AC (19/11 : 03 en charge comme à l'arrêt) :
+        // en charge aussi si le courant BMS est négatif (< -1 A) voiture arrêtée (rapport ni D, ni R, ni N)
+        let g = o["g"] as? String ?? ""
+        k.charging = b[12] & 0x80 != 0 || (cur < -1 && !["D", "R", "N"].contains(g))
         func u32(_ i: Int) -> Double {
             let hi = UInt32(b[i]) << 24 | UInt32(b[i + 1]) << 16
             let lo = UInt32(b[i + 2]) << 8 | UInt32(b[i + 3])
