@@ -223,6 +223,7 @@ struct EspNetworksView: View {
     @State private var ssid = Array(repeating: "", count: 5)       // 0 = maison, 1 = iPhone, 2..4 = autres
     @State private var pass = Array(repeating: "", count: 5)
     @State private var url = ""
+    @State private var effacer = Array(repeating: false, count: 5)  // seuls les « autres réseaux » (2..4) peuvent être effacés
     private let noms = ["WiFi maison", "Partage de l'iPhone", "Autre réseau 1", "Autre réseau 2", "Autre réseau 3"]
 
     var body: some View {
@@ -243,7 +244,9 @@ struct EspNetworksView: View {
             ForEach(0..<5, id: \.self) { i in
                 Section(noms[i]) {
                     TextField("Nom du réseau (SSID)", text: $ssid[i]).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    SecureField("Mot de passe", text: $pass[i])
+                        .disabled(effacer[i])
+                    SecureField("Mot de passe", text: $pass[i]).disabled(effacer[i])
+                    if i >= 2 { Toggle("Effacer ce réseau de l'ESP32", isOn: $effacer[i]) }
                 }
             }
             Section {
@@ -254,9 +257,9 @@ struct EspNetworksView: View {
             }
             Section {
                 Button { envoyer() } label: { Label("Envoyer à l'ESP32", systemImage: "paperplane.fill") }
-                    .disabled(!r.bleReady || (ssid.allSatisfy { $0.isEmpty } && url.isEmpty))
+                    .disabled(!r.bleReady || (ssid.allSatisfy { $0.isEmpty } && url.isEmpty && !effacer.contains(true)))
             } footer: {
-                Text("Seuls les champs remplis sont envoyés ; les autres réseaux restent inchangés. Les réseaux « Internet » (iPhone, autres) servent hors de la maison, comme le partage de connexion. Il faut que l'ESP32 soit connecté en Bluetooth, donc voiture hors du WiFi maison.")
+                Text("Seuls les champs remplis (ou les réseaux à effacer) sont envoyés ; les autres réseaux restent inchangés. Les réseaux « Internet » (iPhone, autres) servent hors de la maison, comme le partage de connexion. Il faut que l'ESP32 soit connecté en Bluetooth, donc voiture hors du WiFi maison.")
             }
         }
         .navigationTitle("Réseaux de l'ESP32")
@@ -266,11 +269,14 @@ struct EspNetworksView: View {
     private func envoyer() {
         let slots = ["m", "0", "1", "2", "3"]
         var cmds: [String] = []
-        for i in 0..<5 where !ssid[i].trimmingCharacters(in: .whitespaces).isEmpty {
-            cmds.append("net:\(slots[i]):\(ssid[i].trimmingCharacters(in: .whitespaces))\t\(pass[i])")
+        for i in 0..<5 {
+            if i >= 2 && effacer[i] { cmds.append("net:\(slots[i]):"); continue }   // SSID vide = réseau effacé par l'ESP32
+            let s = ssid[i].trimmingCharacters(in: .whitespaces)
+            if !s.isEmpty { cmds.append("net:\(slots[i]):\(s)\t\(pass[i])") }
         }
         if url.hasPrefix("https://") { cmds.append("url:" + url.trimmingCharacters(in: .whitespacesAndNewlines)) }
         r.netSend(cmds)
         pass = Array(repeating: "", count: 5)
+        effacer = Array(repeating: false, count: 5)
     }
 }

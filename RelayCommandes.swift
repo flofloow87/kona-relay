@@ -41,7 +41,8 @@ extension BLERelay {
             st.note("Commande \(c.label) (Home Assistant)")
             postCommand(["commande": c.rawValue]) { ok in
                 self.busy = nil
-                self.show(ok ? "\(c.label) envoyé via Home Assistant" : "\(c.label) : Home Assistant injoignable")
+                // HA répond toujours 200 : la commande n'est exécutée que si l'ESP32 est sur le WiFi maison (MQTT)
+                self.show(ok ? "\(c.label) transmis à Home Assistant (exécuté seulement si la Kona est au WiFi maison)" : "\(c.label) : Home Assistant injoignable")
             }
         }
     }

@@ -174,6 +174,7 @@ final class BLERelay: NSObject, ObservableObject, CBCentralManagerDelegate, CBPe
                 if let kind = o["trip"] as? String { relayTrip(d, ack: kind == "done" ? "done" : "\(o["part"] ?? "")", p: p); continue }
                 if var k = KonaData.decode(d) {
                     if let l = loc, -l.timestamp.timeIntervalSinceNow < 120, l.speed >= 0 { k.speed = Int(l.speed * 3.6) }
+                    if (k.speed ?? 0) > 5 { k.charging = false }      // récupération en roulant (rapport non lu)
                     data = k
                     if let e = try? JSONEncoder().encode(k) { ud.set(e, forKey: "lastData") }
                     afterData(k, quick: false)
