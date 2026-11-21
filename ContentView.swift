@@ -282,6 +282,14 @@ struct VoiturePage: View {
         let autonomie = meteo.range(soc) ?? st.range(soc)
         let (etat, couleur) = statut(d)
         return VStack(spacing: 6) {
+            // état au centre, liaison avec la voiture en haut à droite
+            ZStack {
+                Text(etat).font(.headline).foregroundStyle(couleur)
+                    .contentTransition(.interpolate)
+                    .animation(.snappy, value: etat)
+                    .padding(.horizontal, 44)
+                HStack { Spacer(); liaison }
+            }
             HStack(alignment: .center, spacing: 14) {
                 BatteryBar(soc: soc, charging: charge)
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
@@ -293,19 +301,38 @@ struct VoiturePage: View {
                 }
             }
             .animation(.snappy, value: autonomie)
-            Text(etat).font(.headline).foregroundStyle(couleur)
-                .contentTransition(.interpolate)
-                .animation(.snappy, value: etat)
-            lecture(d).font(.footnote).foregroundStyle(Color.kSub)
         }
+    }
+
+    /// Liaison avec la voiture : Bluetooth direct, WiFi maison (lecture via Home Assistant) ou hors ligne
+    private var liaison: some View {
+        let viaHA = r.haSync.map { now.timeIntervalSince($0) < 180 } == true
+        let (icone, col, txt): (String, Color, String) =
+            r.connected ? ("antenna.radiowaves.left.and.right", .kBlue, "Bluetooth")
+            : viaHA ? ("wifi", .kTeal, "WiFi maison")
+            : ("wifi.slash", Color.kSub, "Hors ligne")
+        return Image(systemName: icone)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(col)
+            .contentTransition(.symbolEffect(.replace))
+            .symbolEffect(.pulse, isActive: !r.connected && !viaHA && r.status.hasPrefix("Recherche"))
+            .frame(width: 34, height: 34)
+            .background(col.opacity(0.14), in: Circle())
+            .animation(.easeInOut(duration: 0.3), value: icone)
+            .accessibilityElement()
+            .accessibilityLabel("Connexion")
+            .accessibilityValue(txt)
     }
 
     // MARK: Voiture animée
     private var voiture: some View {
         let d = r.data
-        return KonaCarScene(soc: d?.soc ?? d?.socBms, charging: r.enCharge(now), gear: d?.gear, speed: d?.speed, live: r.connected,
-                            paint: CarPaint(rawValue: carColor) ?? .gris, done: r.done, eco: r.eco, actif: actif)
-            .padding(.horizontal, -16)
+        return VStack(spacing: 2) {
+            KonaCarScene(soc: d?.soc ?? d?.socBms, charging: r.enCharge(now), gear: d?.gear, speed: d?.speed, live: r.connected,
+                         paint: CarPaint(rawValue: carColor) ?? .gris, done: r.done, eco: r.eco, actif: actif)
+                .padding(.horizontal, -16)
+            lecture(d).font(.footnote).foregroundStyle(Color.kSub)
+        }
     }
 
     private func statut(_ d: KonaData?) -> (String, Color) {
@@ -324,12 +351,15 @@ struct VoiturePage: View {
         return ("Garée", Color.primary.opacity(0.85))
     }
 
-    /// Âge et source de la lecture (remplace la pastille de liaison de l'ancien en-tête), feuille en mode économie
+    /// Date de la dernière lecture (sous la voiture), feuille en mode économie
     private func lecture(_ d: KonaData?) -> Text {
         let eco = r.eco ? Text(Image(systemName: "leaf.fill")).foregroundColor(.kGold) + Text(" ") : Text("")
         guard let d else { return eco + Text("Aucune lecture pour l'instant") }
-        let src = r.connected ? "Bluetooth" : d.src == "ha" ? "via Home Assistant" : "dernière connue"
-        return eco + Text("Lecture il y a \(d.date, style: .relative) · \(src)")
+        let heure = d.date.formatted(date: .omitted, time: .shortened)
+        if Calendar.current.isDateInToday(d.date) {
+            return eco + Text("Dernière lecture à \(heure) · il y a \(d.date, style: .relative)")
+        }
+        return eco + Text("Dernière lecture le \(d.date.formatted(.dateTime.day().month(.abbreviated))) à \(heure)")
     }
 
     private func heroStats(_ d: KonaData?, _ soc: Double?) -> some View {
