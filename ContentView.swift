@@ -510,6 +510,7 @@ extension View {
     func konaScroll() -> some View {
         scrollIndicators(.hidden)
             .toolbar(.hidden, for: .navigationBar)
+            .containerBackground(.clear, for: .navigation)   // sinon la NavigationStack peint un fond noir opaque
     }
 
     /// Lignes de liste translucides sur le fond Kona
