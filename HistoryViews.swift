@@ -192,6 +192,8 @@ struct ChargeRow: View {
 
 struct LogView: View {
     @EnvironmentObject var st: Store
+    @State private var confirmer = false
+
     var body: some View {
         List(st.log.reversed()) { e in
             VStack(alignment: .leading, spacing: 2) {
@@ -200,11 +202,32 @@ struct LogView: View {
             }
             .konaRows()
         }
+        .overlay {
+            if st.log.isEmpty {
+                ContentUnavailableView("Journal vide", systemImage: "list.bullet.rectangle.portrait",
+                                       description: Text("Les prochains événements du relais s'afficheront ici."))
+            }
+        }
         .navigationTitle("Journal")
         .toolbar {
-            ShareLink(item: st.log.map { "\($0.date.formatted(date: .numeric, time: .standard))  \($0.text)" }.joined(separator: "\n")) {
-                Image(systemName: "square.and.arrow.up")
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                ShareLink(item: st.log.map { "\($0.date.formatted(date: .numeric, time: .standard))  \($0.text)" }.joined(separator: "\n")) {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .disabled(st.log.isEmpty)
+                Button(role: .destructive) { confirmer = true } label: { Image(systemName: "trash") }
+                    .disabled(st.log.isEmpty)
+                    .accessibilityLabel("Vider le journal")
             }
+        }
+        .confirmationDialog("Vider le journal ?", isPresented: $confirmer, titleVisibility: .visible) {
+            Button("Effacer les \(st.log.count) événements", role: .destructive) {
+                withAnimation { st.log.removeAll() }
+                st.save()
+            }
+            Button("Annuler", role: .cancel) {}
+        } message: {
+            Text("Les trajets, recharges et l'emplacement enregistrés ne sont pas touchés.")
         }
     }
 }
