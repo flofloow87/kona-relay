@@ -236,7 +236,9 @@ struct VoiturePage: View {
 
     var body: some View {
         let charge = r.enCharge(now)
-        NavigationStack {
+        // Pas de NavigationStack ici : l'onglet n'ouvre aucune page. Dans une pile de navigation, cette page
+        // relançait sans fin le calcul des marges de sécurité dès qu'une alerte s'affichait (app figée au lancement).
+        Group {
             ScrollView {
                 // Tout tient sur un écran : la carte prend la place libre, la voiture rétrécit si besoin.
                 // Si ça ne suffit pas (très grande police, courbe de charge en plus), la page défile.
