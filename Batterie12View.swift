@@ -13,7 +13,7 @@ struct Batterie12View: View {
     private static let jour: DateFormatter = { let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.timeZone = TimeZone(identifier: "Europe/Paris"); return f }()
 
     var body: some View {
-        List {
+        List { Group {
             Section {
                 if let f, !f.hist.isEmpty {
                     let pts: [(d: Date, v: Double)] = f.hist.compactMap { p in Self.jour.date(from: p.d).map { (d: $0, v: p.v) } }
@@ -66,7 +66,7 @@ struct Batterie12View: View {
                     if let v = r.data?.v12d { LabeledContent("Dernière mesure directe", value: "\(fr(v, 2)) V") }
                 }
             }
-        }
+        }.konaRows() }
         .navigationTitle("Batterie 12 V")
         .task { await load() }
         .refreshable { await load() }

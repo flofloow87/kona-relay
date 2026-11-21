@@ -1,41 +1,9 @@
 import SwiftUI
 
-// MARK: - Teinte de carrosserie (réglage « carColor »)
-enum CarPaint: String, CaseIterable, Identifiable {
-    case gris, blanc, noir, nuit, rouge, bleu
-    var id: String { rawValue }
-    var label: String {
-        switch self {
-        case .gris: "Gris galactique"
-        case .blanc: "Blanc craie"
-        case .noir: "Noir fantôme"
-        case .nuit: "Bleu nuit"
-        case .rouge: "Rouge pulse"
-        case .bleu: "Bleu céramique"
-        }
-    }
-    private var rgb: (r: Double, g: Double, b: Double) {
-        switch self {
-        case .gris: (0.43, 0.45, 0.48)
-        case .blanc: (0.88, 0.89, 0.88)
-        case .noir: (0.09, 0.10, 0.12)
-        case .nuit: (0.15, 0.19, 0.27)
-        case .rouge: (0.68, 0.07, 0.10)
-        case .bleu: (0.36, 0.62, 0.78)
-        }
-    }
-    /// k < 1 assombrit, k > 1 éclaircit (mélange avec du blanc)
-    func tone(_ k: Double) -> Color {
-        let c = rgb
-        if k <= 1 { return Color(red: c.r * k, green: c.g * k, blue: c.b * k) }
-        let w = min(k - 1, 1)
-        return Color(red: c.r + (1 - c.r) * w, green: c.g + (1 - c.g) * w, blue: c.b + (1 - c.b) * w)
-    }
-}
-
 // MARK: - Scène de l'écran d'accueil : Kona de profil dessinée et animée
 /// Arrivée en roulant, reflet qui balaie la carrosserie, roues et route en mouvement en roulant,
 /// câble et batterie lumineux en charge, phares / clignotants / klaxon quand l'ESP32 confirme une commande.
+/// Ne redessine que si quelque chose bouge (garée : seulement pendant le reflet), et jamais hors écran.
 struct KonaCarScene: View {
     var soc: Double?
     var charging: Bool
@@ -45,205 +13,70 @@ struct KonaCarScene: View {
     var paint: CarPaint
     var done: CmdDone?
     var eco: Bool
+    var actif = true                // onglet affiché
     @Environment(\.accessibilityReduceMotion) private var reduce
     @Environment(\.scenePhase) private var phase
     @State private var debut: Date?
+    @State private var visible = true
+
+    private var roule: Bool { live && (gear == "D" || gear == "R") && (speed ?? 1) > 0 }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: eco ? 1.0 / 12 : 1.0 / 30, paused: phase != .active)) { tl in
+        let finArrivee = (debut ?? Date()).addingTimeInterval(1.4)
+        let finCommande = done.map { $0.date.addingTimeInterval(2.7) } ?? .distantPast
+        let horaire = CarSchedule(actif: actif && visible && phase == .active,
+                                  continu: !reduce && (roule || charging),
+                                  jusqua: max(finArrivee, finCommande),
+                                  dt: reduce ? 0.25 : (eco ? 1.0 / 12 : 1.0 / 30),
+                                  reflet: !reduce)
+        TimelineView(horaire) { tl in
             Canvas { ctx, size in
                 CarRender(size: size, now: tl.date, debut: debut, soc: soc, charging: charging, gear: gear,
-                          speed: speed, live: live, paint: paint, done: done, motion: !reduce).draw(ctx)
+                          speed: speed, roule: roule, live: live, paint: paint, done: done, motion: !reduce).draw(ctx)
             }
         }
         .aspectRatio(2.0, contentMode: .fit)
         .onAppear { if debut == nil { debut = Date() } }
+        .onScrollVisibilityChange(threshold: 0.02) { visible = $0 }
         .accessibilityElement()
         .accessibilityLabel(charging ? "Kona en charge" : "Kona")
     }
 }
 
-// MARK: - Géométrie (mètres → points). x : de l'avant (0) vers l'arrière, y : depuis le sol.
-private enum K {
-    static let L: CGFloat = 4.18          // longueur
-    static let fw: CGFloat = 0.86         // centre de la roue avant
-    static let rw: CGFloat = 3.46         // centre de la roue arrière
-    static let wy: CGFloat = 0.33         // hauteur des moyeux
-    static let tire: CGFloat = 0.33       // rayon du pneu
-    static let arch: CGFloat = 0.41       // rayon des passages de roue
-}
+/// Dates d'affichage : continues en roulant / en charge / pendant une animation ponctuelle,
+/// sinon seulement pendant le reflet (1,7 s toutes les 7 s). Rien quand la scène n'est pas visible.
+private struct CarSchedule: TimelineSchedule {
+    let actif: Bool
+    let continu: Bool
+    let jusqua: Date
+    let dt: Double
+    let reflet: Bool
 
-private struct Geo {
-    var s: CGFloat      // points par mètre
-    var x0: CGFloat     // abscisse du bouclier avant
-    var gy: CGFloat     // ordonnée du sol
-    func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x0 + x * s, y: gy - y * s) }
-    func m(_ v: CGFloat) -> CGFloat { v * s }
-    /// Rectangle donné en mètres (xmin, ymin, xmax, ymax)
-    func rect(_ xa: CGFloat, _ ya: CGFloat, _ xb: CGFloat, _ yb: CGFloat) -> CGRect {
-        let a = p(xa, yb), b = p(xb, ya)
-        return CGRect(x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y)
-    }
-}
-
-private func rond(_ c: CGPoint, _ r: CGFloat) -> Path {
-    Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2))
-}
-
-/// Arc en coordonnées voiture (angles en degrés, sens trigonométrique, y vers le haut)
-private func arc(_ p: inout Path, _ g: Geo, _ cx: CGFloat, _ cy: CGFloat, _ r: CGFloat,
-                 _ a0: CGFloat, _ a1: CGFloat, move: Bool) {
-    let n = 20
-    for i in 0...n {
-        let a = (a0 + (a1 - a0) * CGFloat(i) / CGFloat(n)) * .pi / 180
-        let pt = g.p(cx + r * cos(a), cy + r * sin(a))
-        if i == 0 && move { p.move(to: pt) } else { p.addLine(to: pt) }
-    }
-}
-
-/// Silhouette de la Kona Electric (SUV compact, capot court, toit fuyant, aileron, habillage noir)
-private enum Silhouette {
-    static func body(_ g: Geo) -> Path {
-        var p = Path()
-        p.move(to: g.p(0.12, 0.30))
-        p.addQuadCurve(to: g.p(0.0, 0.50), control: g.p(0.0, 0.30))
-        p.addLine(to: g.p(0.02, 0.74))
-        p.addQuadCurve(to: g.p(0.16, 0.90), control: g.p(0.03, 0.88))
-        p.addQuadCurve(to: g.p(1.22, 1.05), control: g.p(0.75, 1.01))
-        p.addQuadCurve(to: g.p(1.98, 1.50), control: g.p(1.55, 1.38))
-        p.addQuadCurve(to: g.p(3.62, 1.49), control: g.p(2.85, 1.58))
-        p.addLine(to: g.p(3.96, 1.45))
-        p.addQuadCurve(to: g.p(4.04, 1.37), control: g.p(4.04, 1.45))
-        p.addLine(to: g.p(4.11, 1.10))
-        p.addQuadCurve(to: g.p(4.18, 0.80), control: g.p(4.18, 1.00))
-        p.addLine(to: g.p(4.16, 0.50))
-        p.addQuadCurve(to: g.p(4.00, 0.30), control: g.p(4.15, 0.31))
-        arc(&p, g, K.rw, K.wy, K.arch, -8, 188, move: false)
-        arc(&p, g, K.fw, K.wy, K.arch, -8, 188, move: false)
-        p.closeSubpath()
-        return p
+    func entries(from start: Date, mode: TimelineScheduleMode) -> Entries {
+        Entries(t: start, s: self, actif: actif && mode == .normal)
     }
 
-    static func glass(_ g: Geo) -> Path {
-        var p = Path()
-        p.move(to: g.p(1.34, 1.07))
-        p.addQuadCurve(to: g.p(2.00, 1.45), control: g.p(1.62, 1.34))
-        p.addQuadCurve(to: g.p(3.50, 1.44), control: g.p(2.80, 1.52))
-        p.addQuadCurve(to: g.p(3.86, 1.24), control: g.p(3.80, 1.42))
-        p.addLine(to: g.p(3.84, 1.17))
-        p.closeSubpath()
-        return p
-    }
+    struct Entries: Sequence, IteratorProtocol {
+        var t: Date
+        let s: CarSchedule
+        let actif: Bool
+        var fini = false
 
-    static func wells(_ g: Geo) -> Path {
-        var p = Path()
-        for cx in [K.fw, K.rw] {
-            arc(&p, g, cx, K.wy, K.arch, -8, 188, move: true)
-            p.closeSubpath()
-        }
-        return p
-    }
-
-    /// Élargisseurs d'ailes (à remplir découpés par la carrosserie)
-    static func arches(_ g: Geo) -> Path {
-        var p = Path()
-        for cx in [K.fw, K.rw] {
-            arc(&p, g, cx, K.wy, K.arch + 0.075, -10, 190, move: true)
-            arc(&p, g, cx, K.wy, K.arch - 0.01, 190, -10, move: false)
-            p.closeSubpath()
-        }
-        return p
-    }
-
-    /// Bas de caisse et bas des boucliers
-    static func lower(_ g: Geo) -> Path {
-        var p = Path()
-        p.addRect(g.rect(K.fw, 0.2, K.rw, 0.40))
-        p.addRect(g.rect(0.0, 0.2, 0.5, 0.40))
-        p.addRect(g.rect(3.85, 0.2, 4.3, 0.44))
-        return p
-    }
-
-    static func pillarB(_ g: Geo) -> Path {
-        Path { p in
-            p.addLines([g.p(2.55, 1.11), g.p(2.63, 1.11), g.p(2.67, 1.49), g.p(2.59, 1.49)])
-            p.closeSubpath()
+        mutating func next() -> Date? {
+            guard !fini else { return nil }
+            let cur = t
+            guard actif else { fini = true; return cur }
+            var n = t.addingTimeInterval(s.dt)
+            if !s.continu && n > s.jusqua.addingTimeInterval(s.dt) {
+                guard s.reflet else { fini = true; return cur }
+                // en dehors du reflet : saut au début du suivant
+                let ph = n.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 3600).truncatingRemainder(dividingBy: 7)
+                if ph > 1.7 + s.dt * 1.5 { n = n.addingTimeInterval(7 - ph) }
+            }
+            t = n
+            return cur
         }
     }
-
-    static func pillarC(_ g: Geo) -> Path {
-        Path { p in
-            p.addLines([g.p(3.30, 1.15), g.p(3.44, 1.15), g.p(3.60, 1.46), g.p(3.44, 1.47)])
-            p.closeSubpath()
-        }
-    }
-
-    static func rails(_ g: Geo) -> Path {
-        Path { p in
-            p.move(to: g.p(2.05, 1.548))
-            p.addQuadCurve(to: g.p(3.55, 1.532), control: g.p(2.85, 1.598))
-        }
-    }
-
-    static func doors(_ g: Geo) -> Path {
-        var p = Path()
-        p.move(to: g.p(1.36, 0.44))
-        p.addQuadCurve(to: g.p(1.33, 1.06), control: g.p(1.40, 0.80))
-        p.move(to: g.p(2.60, 0.41))
-        p.addLine(to: g.p(2.60, 1.11))
-        p.move(to: g.p(3.00, 0.44))
-        p.addQuadCurve(to: g.p(3.30, 1.14), control: g.p(3.12, 0.98))
-        return p
-    }
-
-    static func handles(_ g: Geo) -> Path {
-        var p = Path()
-        let r = CGSize(width: g.m(0.017), height: g.m(0.017))
-        p.addRoundedRect(in: g.rect(2.18, 0.955, 2.36, 0.99), cornerSize: r)
-        p.addRoundedRect(in: g.rect(3.00, 0.975, 3.16, 1.01), cornerSize: r)
-        return p
-    }
-
-    static func mirror(_ g: Geo) -> Path {
-        Path { p in
-            p.move(to: g.p(1.36, 1.05))
-            p.addQuadCurve(to: g.p(1.60, 1.12), control: g.p(1.50, 1.04))
-            p.addQuadCurve(to: g.p(1.40, 1.19), control: g.p(1.58, 1.20))
-            p.closeSubpath()
-        }
-    }
-
-    static func shoulder(_ g: Geo) -> Path {
-        Path { p in
-            p.move(to: g.p(0.35, 0.93))
-            p.addQuadCurve(to: g.p(4.10, 1.02), control: g.p(2.2, 0.95))
-        }
-    }
-
-    static func crease(_ g: Geo) -> Path {
-        Path { p in
-            p.move(to: g.p(1.40, 0.60))
-            p.addQuadCurve(to: g.p(3.00, 0.66), control: g.p(2.2, 0.60))
-        }
-    }
-
-    static func drl(_ g: Geo) -> Path {
-        Path { p in
-            p.move(to: g.p(0.07, 0.86))
-            p.addQuadCurve(to: g.p(0.50, 0.94), control: g.p(0.25, 0.92))
-        }
-    }
-
-    static func headlamp(_ g: Geo) -> Path { Path(roundedRect: g.rect(0.01, 0.55, 0.26, 0.67), cornerRadius: g.m(0.04)) }
-
-    static func tail(_ g: Geo) -> Path {
-        Path { p in
-            p.move(to: g.p(3.98, 1.14))
-            p.addLine(to: g.p(4.13, 1.03))
-        }
-    }
-
-    static func tailLow(_ g: Geo) -> Path { Path(roundedRect: g.rect(4.05, 0.55, 4.17, 0.63), cornerRadius: g.m(0.02)) }
 }
 
 // MARK: - Rendu d'une image
@@ -255,6 +88,7 @@ private struct CarRender {
     let charging: Bool
     let gear: String?
     let speed: Int?
+    let roule: Bool
     let live: Bool
     let paint: CarPaint
     let done: CmdDone?
@@ -263,7 +97,7 @@ private struct CarRender {
     func draw(_ ctx0: GraphicsContext) {
         let t = now.timeIntervalSinceReferenceDate
         let tt = CGFloat(t.truncatingRemainder(dividingBy: 3600))
-        let s = min(size.width * 0.78 / K.L, size.height / 2.7)
+        let s = min(size.width * 0.78 / Dim.L, size.height / 2.7)
 
         // Arrivée : la voiture entre par la droite en roulant
         var e: CGFloat = 1
@@ -280,13 +114,12 @@ private struct CarRender {
             let x = CGFloat(now.timeIntervalSince(d.date))
             if x >= 0 && x < 0.7 { shake = sin(x * 90) * 1.6 * (1 - x / 0.7) }
         }
-        let g = Geo(s: s, x0: (size.width - K.L * s) / 2 + shift + shake, gy: s * 2.15)
+        let g = CarGeo(s: s, x0: (size.width - Dim.L * s) / 2 + shift + shake, gy: s * 2.15)
 
         // En roulant : roues et marquage au sol à la même vitesse
-        let roule = live && (gear == "D" || gear == "R") && (speed ?? 1) > 0
         let dir: CGFloat = gear == "R" ? -1 : 1
         let revs = CGFloat(min(0.35 + Double(speed ?? 6) / 45, 2.2))
-        let rt = g.m(K.tire)
+        let rt = g.m(Dim.tire)
         var angle = -(course - shift) / rt
         var roadPhase: CGFloat = 0
         if roule && motion {
@@ -311,9 +144,9 @@ private struct CarRender {
     }
 
     // MARK: Sol, reflet, ombre
-    private func sol(_ ctx: GraphicsContext, _ g: Geo, couleur: Color, k: CGFloat, fort: Bool) {
+    private func sol(_ ctx: GraphicsContext, _ g: CarGeo, couleur: Color, k: CGFloat, fort: Bool) {
         var l = ctx
-        l.translateBy(x: g.p(K.L / 2, 0).x, y: g.gy)
+        l.translateBy(x: g.p(Dim.L / 2, 0).x, y: g.gy)
         l.scaleBy(x: 1, y: 0.2)
         let r = g.m(2.6) * k
         let o = fort ? 0.35 : 0.14
@@ -321,9 +154,8 @@ private struct CarRender {
                                                      center: .zero, startRadius: 0, endRadius: r))
     }
 
-    private func reflet(_ ctx: GraphicsContext, _ g: Geo, angle: CGFloat, tt: CGFloat) {
-        var c = ctx
-        c.drawLayer { l in
+    private func reflet(_ ctx: GraphicsContext, _ g: CarGeo, angle: CGFloat, tt: CGFloat) {
+        ctx.drawLayer { l in
             l.translateBy(x: 0, y: g.gy * 2)
             l.scaleBy(x: 1, y: -1)
             voiture(l, g, angle: angle, tt: tt, allume: false, reflet: true)
@@ -335,18 +167,18 @@ private struct CarRender {
         }
     }
 
-    private func ombre(_ ctx: GraphicsContext, _ g: Geo) {
+    private func ombre(_ ctx: GraphicsContext, _ g: CarGeo) {
         var l = ctx
         l.addFilter(.blur(radius: g.m(0.09)))
         l.fill(Path(ellipseIn: CGRect(x: g.p(0.15, 0).x, y: g.gy - g.m(0.07), width: g.m(3.9), height: g.m(0.15))),
                with: .color(.black.opacity(0.7)))
-        for cx in [K.fw, K.rw] {
+        for cx in [Dim.fw, Dim.rw] {
             l.fill(Path(ellipseIn: CGRect(x: g.p(cx - 0.32, 0).x, y: g.gy - g.m(0.04), width: g.m(0.64), height: g.m(0.08))),
                    with: .color(.black.opacity(0.9)))
         }
     }
 
-    private func route(_ ctx: GraphicsContext, _ g: Geo, phase: CGFloat) {
+    private func route(_ ctx: GraphicsContext, _ g: CarGeo, phase: CGFloat) {
         let y = g.gy + g.m(0.07)
         let pat = g.m(0.9)
         var p = Path()
@@ -359,13 +191,13 @@ private struct CarRender {
     }
 
     // MARK: Voiture
-    private func voiture(_ ctx: GraphicsContext, _ g: Geo, angle: CGFloat, tt: CGFloat, allume: Bool, reflet: Bool) {
+    private func voiture(_ ctx: GraphicsContext, _ g: CarGeo, angle: CGFloat, tt: CGFloat, allume: Bool, reflet: Bool) {
         let body = Silhouette.body(g)
         let glass = Silhouette.glass(g)
 
         ctx.fill(Silhouette.wells(g), with: .color(Color(white: 0.02)))
-        roue(ctx, g, cx: K.fw, angle: angle)
-        roue(ctx, g, cx: K.rw, angle: angle)
+        roue(ctx, g, cx: Dim.fw, angle: angle)
+        roue(ctx, g, cx: Dim.rw, angle: angle)
 
         // Peinture : reflet de toit, ligne d'épaule claire, bas de caisse dans l'ombre
         let haut = g.p(0, 1.58).y, bas = g.p(0, 0.27).y
@@ -409,9 +241,9 @@ private struct CarRender {
         if !reflet { balayage(ctx, g, body: body, tt: tt) }
     }
 
-    private func roue(_ ctx: GraphicsContext, _ g: Geo, cx: CGFloat, angle: CGFloat) {
-        let c = g.p(cx, K.wy)
-        let rt = g.m(K.tire), rr = g.m(0.225)
+    private func roue(_ ctx: GraphicsContext, _ g: CarGeo, cx: CGFloat, angle: CGFloat) {
+        let c = g.p(cx, Dim.wy)
+        let rt = g.m(Dim.tire), rr = g.m(Dim.rim)
         ctx.fill(rond(c, rt), with: .color(Color(white: 0.06)))
         ctx.stroke(rond(c, rt * 0.86), with: .color(.white.opacity(0.07)), lineWidth: 1)
         var w = ctx
@@ -429,7 +261,7 @@ private struct CarRender {
         w.stroke(rond(.zero, rr), with: .color(.white.opacity(0.25)), lineWidth: 0.8)
     }
 
-    private func feux(_ ctx: GraphicsContext, _ g: Geo, allume: Bool, halo: Bool) {
+    private func feux(_ ctx: GraphicsContext, _ g: CarGeo, allume: Bool, halo: Bool) {
         let drl = Silhouette.drl(g)
         if allume && halo {
             var h = ctx
@@ -445,13 +277,13 @@ private struct CarRender {
     }
 
     /// Reflet de lumière qui traverse la carrosserie toutes les 7 s
-    private func balayage(_ ctx: GraphicsContext, _ g: Geo, body: Path, tt: CGFloat) {
+    private func balayage(_ ctx: GraphicsContext, _ g: CarGeo, body: Path, tt: CGFloat) {
         guard motion else { return }
         let ph = tt.truncatingRemainder(dividingBy: 7)
         let dur: CGFloat = 1.7
         guard ph < dur else { return }
         let w = g.m(0.7), sk = g.m(0.5)
-        let x = g.p(-0.8, 0).x + ph / dur * g.m(K.L + 1.8)
+        let x = g.p(-0.8, 0).x + ph / dur * g.m(Dim.L + 1.8)
         let haut = g.p(0, 1.6).y, bas = g.p(0, 0.25).y
         var c = ctx
         c.clip(to: body)
@@ -464,12 +296,12 @@ private struct CarRender {
     }
 
     // MARK: Recharge
-    private func batterie(_ ctx: GraphicsContext, _ g: Geo, tt: CGFloat) {
-        let rect = g.rect(1.42, 0.31, 2.94, 0.40)
+    private func batterie(_ ctx: GraphicsContext, _ g: CarGeo, tt: CGFloat) {
+        let rect = Silhouette.pack(g)
         let f = CGFloat(max(0.04, min(1, (soc ?? 0) / 100)))
         var h = ctx
         h.addFilter(.blur(radius: g.m(0.08)))
-        let pulse = 0.55 + 0.25 * sin(tt * 3)
+        let pulse = motion ? 0.55 + 0.25 * sin(tt * 3) : 0.6
         h.fill(Path(roundedRect: rect.insetBy(dx: -2, dy: -2), cornerRadius: 3), with: .color(Color.kTeal.opacity(Double(pulse))))
         ctx.fill(Path(roundedRect: rect, cornerRadius: g.m(0.03)), with: .color(.black.opacity(0.75)))
         let plein = CGRect(x: rect.minX + 1.5, y: rect.minY + 1.5, width: (rect.width - 3) * f, height: rect.height - 3)
@@ -494,7 +326,7 @@ private struct CarRender {
     }
 
     /// Câble posé au sol jusqu'à la trappe avant, énergie qui circule vers la voiture
-    private func cable(_ ctx: GraphicsContext, _ g: Geo, tt: CGFloat) {
+    private func cable(_ ctx: GraphicsContext, _ g: CarGeo, tt: CGFloat) {
         let port = g.p(0.01, 0.70)
         var p = Path()
         p.move(to: CGPoint(x: -6, y: g.gy - g.m(0.03)))
@@ -516,7 +348,7 @@ private struct CarRender {
     }
 
     // MARK: Commandes confirmées par l'ESP32
-    private func effets(_ ctx: GraphicsContext, _ g: Geo) {
+    private func effets(_ ctx: GraphicsContext, _ g: CarGeo) {
         guard let d = done else { return }
         let e = CGFloat(now.timeIntervalSince(d.date))
         guard e >= 0, e < 2.6 else { return }
@@ -530,7 +362,7 @@ private struct CarRender {
     }
 
     /// Appel de phares : faisceaux qui clignotent devant la voiture
-    private func phares(_ ctx: GraphicsContext, _ g: Geo, _ e: CGFloat) {
+    private func phares(_ ctx: GraphicsContext, _ g: CarGeo, _ e: CGFloat) {
         let on = e < 2.2 && (!motion || Int(e / 0.32) % 2 == 0)
         guard on else { return }
         let a = g.p(0.03, 0.66), b = g.p(0.03, 0.56)
@@ -552,7 +384,7 @@ private struct CarRender {
     }
 
     /// Klaxon : ondes sonores devant la voiture
-    private func klaxon(_ ctx: GraphicsContext, _ g: Geo, _ e: CGFloat) {
+    private func klaxon(_ ctx: GraphicsContext, _ g: CarGeo, _ e: CGFloat) {
         guard e < 1.8 else { return }
         let c0 = g.p(-0.05, 0.62)
         let env = min(1, (1.8 - e) / 0.5)
@@ -571,7 +403,7 @@ private struct CarRender {
     }
 
     /// Feux de détresse : 1 éclat à la fermeture, 2 à l'ouverture (comme la voiture)
-    private func clignotants(_ ctx: GraphicsContext, _ g: Geo, _ e: CGFloat, deux: Bool) {
+    private func clignotants(_ ctx: GraphicsContext, _ g: CarGeo, _ e: CGFloat, deux: Bool) {
         let on: Bool
         if !motion { on = e < 1.0 }
         else if deux { on = (e > 0.05 && e < 0.4) || (e > 0.65 && e < 1.0) }
@@ -588,7 +420,7 @@ private struct CarRender {
     }
 
     /// Cadenas au-dessus du toit, petit rebond et onde
-    private func cadenas(_ ctx: GraphicsContext, _ g: Geo, _ e: CGFloat, ouvert: Bool) {
+    private func cadenas(_ ctx: GraphicsContext, _ g: CarGeo, _ e: CGFloat, ouvert: Bool) {
         let c0 = g.p(2.75, 1.86)
         var sc: CGFloat = 1
         if motion {

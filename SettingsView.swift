@@ -33,7 +33,7 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            Form { Group {
                 Section {
                     Stepper(value: $main, in: 10...600, step: main < 60 ? 5 : 15) {
                         LabeledContent("Principales", value: "toutes les \(duree(main))")
@@ -80,6 +80,11 @@ struct SettingsView: View {
                     Picker("Couleur d'accent", selection: $accent) {
                         Text("Turquoise").tag("turquoise"); Text("Rouge Kona").tag("rouge")
                     }
+                    KonaSide(paint: CarPaint(rawValue: carColor) ?? .gris)
+                        .frame(maxWidth: 260)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .animation(.easeInOut(duration: 0.4), value: carColor)
                     Picker("Teinte de la voiture", selection: $carColor) {
                         ForEach(CarPaint.allCases) { p in Text(p.label).tag(p.rawValue) }
                     }
@@ -89,11 +94,10 @@ struct SettingsView: View {
                 } header: {
                     Text("Thème")
                 } footer: {
-                    Text("La teinte sert à la voiture dessinée de l'écran d'accueil. Les widgets, l'activité en direct et CarPlay restent en sombre.")
+                    Text("La teinte sert à la voiture de l'onglet Voiture, des widgets et de l'activité en direct. Les widgets, l'activité en direct et CarPlay restent en sombre.")
                 }
 
                 Section {
-                    NavigationLink { HomeEditor().konaPage() } label: { Label("Cartes de l'écran d'accueil", systemImage: "rectangle.3.group") }
                     NavigationLink { EspNetworksView().environmentObject(r).konaPage() } label: { Label("Réseaux de l'ESP32", systemImage: "wifi.router") }
                     if r.pendingCount > 0 {
                         LabeledContent("Sauvegardes en attente", value: "\(r.pendingCount)")
@@ -172,7 +176,7 @@ struct SettingsView: View {
                 Section {
                     LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")
                 }
-            }
+            }.konaRows() }
             .konaPage()
             .navigationTitle("Réglages")
             .navigationBarTitleDisplayMode(.inline)
@@ -194,37 +198,6 @@ struct SettingsView: View {
     }
 }
 
-/// Ordre et affichage des cartes de l'écran d'accueil
-struct HomeEditor: View {
-    @AppStorage("homeOrder") private var homeOrder = ""
-    @AppStorage("homeHidden") private var homeHidden = ""
-    @State private var liste: [HomeCard] = []
-
-    var body: some View {
-        List {
-            Section {
-                ForEach(liste) { c in
-                    Toggle(isOn: Binding(get: { !cachees.contains(c.rawValue) }, set: { on in
-                        var h = cachees; if on { h.remove(c.rawValue) } else { h.insert(c.rawValue) }
-                        homeHidden = h.sorted().joined(separator: ",")
-                    })) { Label(c.label, systemImage: c.icon) }
-                }
-                .onMove { liste.move(fromOffsets: $0, toOffset: $1); homeOrder = liste.map(\.rawValue).joined(separator: ",") }
-            } footer: {
-                Text("Fais glisser pour changer l'ordre, décoche pour masquer. La carte « Recharge en cours » n'apparaît que pendant une recharge.")
-            }
-            Section {
-                Button("Rétablir l'ordre d'origine") { homeOrder = ""; homeHidden = ""; liste = HomeCard.allCases }
-            }
-        }
-        .environment(\.editMode, .constant(.active))
-        .navigationTitle("Écran d'accueil")
-        .onAppear { liste = HomeCard.ordre(homeOrder) }
-    }
-
-    private var cachees: Set<String> { Set(homeHidden.split(separator: ",").map(String.init)) }
-}
-
 /// Réseaux WiFi et webhook de l'ESP32, envoyés en Bluetooth (voiture hors du WiFi maison)
 struct EspNetworksView: View {
     @EnvironmentObject var r: BLERelay
@@ -236,7 +209,7 @@ struct EspNetworksView: View {
     private let noms = ["WiFi maison", "Partage de l'iPhone", "Autre réseau 1", "Autre réseau 2", "Autre réseau 3"]
 
     var body: some View {
-        Form {
+        Form { Group {
             Section {
                 LabeledContent("Bluetooth", value: r.bleReady ? "connecté" : "non connecté")
                 if let n = r.espNets {
@@ -270,7 +243,7 @@ struct EspNetworksView: View {
             } footer: {
                 Text("Seuls les champs remplis (ou les réseaux à effacer) sont envoyés ; les autres réseaux restent inchangés. Les réseaux « Internet » (iPhone, autres) servent hors de la maison, comme le partage de connexion. Il faut que l'ESP32 soit connecté en Bluetooth, donc voiture hors du WiFi maison.")
             }
-        }
+        }.konaRows() }
         .navigationTitle("Réseaux de l'ESP32")
         .onAppear { if url.isEmpty { url = webhook }; if r.bleReady { r.espReadNets() } }
     }

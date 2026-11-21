@@ -9,13 +9,13 @@ settings:
     CODE_SIGNING_ALLOWED: "NO"
     CODE_SIGNING_REQUIRED: "NO"
     CODE_SIGN_IDENTITY: ""
-    MARKETING_VERSION: "2.7"
+    MARKETING_VERSION: "3.0"
     CURRENT_PROJECT_VERSION: "9"
 targets:
   KonaRelay:
     type: application
     platform: iOS
-    sources: [KonaRelayApp.swift, BLERelay.swift, RelayDonnees.swift, RelayCommandes.swift, RelayHA.swift, KonaData.swift, Store.swift, Live.swift, Shared.swift, ContentView.swift, SettingsView.swift, HistoryViews.swift, Insights.swift, Batterie12View.swift, StartIntent.swift, Extras.swift, KonaCar.swift, Assets.xcassets]
+    sources: [KonaRelayApp.swift, BLERelay.swift, RelayDonnees.swift, RelayCommandes.swift, RelayHA.swift, KonaData.swift, Store.swift, Live.swift, Shared.swift, ContentView.swift, SettingsView.swift, HistoryViews.swift, Insights.swift, Batterie12View.swift, StartIntent.swift, Extras.swift, KonaCar.swift, KonaSilhouette.swift, Onglets.swift, Assets.xcassets]
     dependencies:
       - target: KonaWidget
     entitlements:
@@ -45,7 +45,7 @@ targets:
   KonaWidget:
     type: app-extension
     platform: iOS
-    sources: [KonaWidget.swift, Shared.swift]
+    sources: [KonaWidget.swift, Shared.swift, KonaSilhouette.swift]
     entitlements:
       path: KonaWidget.entitlements
       properties:

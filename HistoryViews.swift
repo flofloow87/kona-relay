@@ -8,7 +8,7 @@ struct TripsView: View {
     @AppStorage("prixMaison") private var prix = 0.21
 
     var body: some View {
-        List {
+        List { Group {
             if let t = st.curTrip { Section("En cours") { TripRow(t: t, prix: prix) } }
             Section {
                 ForEach(st.trips) { t in
@@ -20,7 +20,7 @@ struct TripsView: View {
             } footer: {
                 Text("Enregistrés par l'app pendant la connexion Bluetooth (hors WiFi maison). Coût calculé au prix du kWh maison.")
             }
-        }
+        }.konaRows() }
         .navigationTitle("Trajets")
     }
 }
@@ -60,7 +60,7 @@ struct TripDetail: View {
         let cs = t.pts.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
         let tr = troncons
         let sm = t.samples ?? []
-        List {
+        List { Group {
             Section {
                 if cs.count > 1 {
                     Map {
@@ -105,7 +105,7 @@ struct TripDetail: View {
                 LabeledContent("Vitesse maxi", value: "\(t.maxKmh) km/h")
                 LabeledContent("Coût estimé", value: euros(t.kwh * prix))
             }
-        }
+        }.konaRows() }
         .navigationTitle(t.start.formatted(date: .abbreviated, time: .omitted))
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -117,7 +117,7 @@ struct ChargesView: View {
     @State private var lieu = 0
 
     var body: some View {
-        List {
+        List { Group {
             Picker("Lieu", selection: $lieu) { Text("Bornes").tag(0); Text("Maison").tag(1) }
                 .pickerStyle(.segmented)
                 .listRowBackground(Color.clear)
@@ -136,7 +136,7 @@ struct ChargesView: View {
                     Text("Détectées pendant la connexion Bluetooth, donc hors WiFi maison. Coût au prix du kWh borne (Réglages).")
                 }
             }
-        }
+        }.konaRows() }
         .navigationTitle("Recharges")
     }
 }
@@ -146,7 +146,7 @@ struct ChargeDetail: View {
     let prix: Double
     var body: some View {
         let sm = c.samples ?? []
-        List {
+        List { Group {
             if sm.count >= 3 {
                 Section("Puissance") { PowerChart(pts: sm.map { (m: Double($0.s) / 60, kw: $0.kw) }) }
                 let socs = sm.compactMap { x in x.soc.map { (m: Double(x.s) / 60, soc: $0) } }
@@ -167,7 +167,7 @@ struct ChargeDetail: View {
                     } label: { Label("Ouvrir dans Plans", systemImage: "map") }
                 }
             }
-        }
+        }.konaRows() }
         .navigationTitle("Recharge")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -198,6 +198,7 @@ struct LogView: View {
                 Text(e.text).font(.subheadline)
                 Text(e.date.formatted(date: .abbreviated, time: .standard)).font(.caption2).foregroundStyle(.secondary)
             }
+            .konaRows()
         }
         .navigationTitle("Journal")
         .toolbar {

@@ -71,7 +71,7 @@ struct BornesView: View {
     }
 
     var body: some View {
-        List {
+        List { Group {
             if bornes.isEmpty {
                 Text("Pas encore de recharge sur borne enregistrée avec sa courbe. Elles apparaîtront ici après tes prochaines recharges hors de la maison.")
                     .foregroundStyle(.secondary)
@@ -104,7 +104,7 @@ struct BornesView: View {
                     }
                 }
             }
-        }
+        }.konaRows() }
         .navigationTitle("Comparer les bornes")
     }
 }
@@ -158,7 +158,7 @@ struct EntretienView: View {
     @State private var edit: Entretien?
 
     var body: some View {
-        List {
+        List { Group {
             if s.items.isEmpty {
                 Text("Aucune intervention. Ajoute tes révisions, pneus, factures… avec une photo de la facture.").foregroundStyle(.secondary)
             } else {
@@ -186,7 +186,7 @@ struct EntretienView: View {
                     Text("\(s.items.count) interventions · \(euros(s.items.compactMap(\.cout).reduce(0, +)))")
                 }
             }
-        }
+        }.konaRows() }
         .navigationTitle("Carnet d'entretien")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -204,7 +204,7 @@ struct EntretienDetail: View {
     @ObservedObject private var s = EntretienStore.shared
     var body: some View {
         let cur = s.items.first { $0.id == x.id } ?? x
-        List {
+        List { Group {
             Section {
                 LabeledContent("Date", value: cur.date.formatted(date: .long, time: .omitted))
                 if let k = cur.km { LabeledContent("Kilométrage", value: "\(k) km") }
@@ -225,7 +225,7 @@ struct EntretienDetail: View {
                     }
                 }
             }
-        }
+        }.konaRows() }
         .navigationTitle(cur.titre.isEmpty ? "Intervention" : cur.titre)
         .toolbar { Button("Modifier") { edit = cur } }
         .fullScreenCover(item: Binding(get: { plein.map { PhotoID(n: $0) } }, set: { plein = $0?.n })) { p in
@@ -249,7 +249,7 @@ struct EntretienForm: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            Form { Group {
                 Section {
                     TextField("Intitulé", text: $x.titre)
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -264,7 +264,7 @@ struct EntretienForm: View {
                     PhotosPicker(selection: $sel, maxSelectionCount: 6, matching: .images) { Label("Ajouter des photos", systemImage: "photo.on.rectangle") }
                     if !x.photos.isEmpty { Text("\(x.photos.count) photo(s)").foregroundStyle(.secondary) }
                 }
-            }
+            }.konaRows() }
             .navigationTitle("Intervention")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -311,7 +311,7 @@ struct MaKonaView: View {
 
     var body: some View {
         let odo = r.data?.odo
-        List {
+        List { Group {
             Section("Véhicule") {
                 LabeledContent("Modèle", value: "Kona Electric 64 kWh")
                 LabeledContent("VIN", value: (f?.vin).flatMap { $0.isEmpty ? nil : $0 } ?? "non lu par l'ESP32")
@@ -346,7 +346,7 @@ struct MaKonaView: View {
             } header: { Text("Codes défaut") } footer: {
                 if let d = f?.dtcDate { Text("Dernier contrôle le \(date(d)).") }
             }
-        }
+        }.konaRows() }
         .navigationTitle("Ma Kona")
         .task { await load() }
         .refreshable { await load() }

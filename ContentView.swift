@@ -11,130 +11,242 @@ func duree(_ s: Int) -> String {
     s < 60 ? "\(s) s" : s % 60 == 0 ? "\(s / 60) min" : "\(s / 60) min \(s % 60) s"
 }
 
-struct Card<Content: View>: View {
-    let content: Content
-    init(@ViewBuilder content: () -> Content) { self.content = content() }
-    var body: some View {
-        content
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .strokeBorder(LinearGradient(colors: [Color.primary.opacity(0.14), Color.primary.opacity(0.03)],
-                                                 startPoint: .top, endPoint: .bottom), lineWidth: 1)
-            )
+extension BLERelay {
+    /// Lecture récente : Bluetooth en direct ou moins de 15 min. Sinon, ni charge ni trajet animés.
+    func frais(_ now: Date) -> Bool {
+        guard let d = data else { return false }
+        return connected || now.timeIntervalSince(d.date) < 900
     }
+    func enCharge(_ now: Date) -> Bool { data?.charging == true && frais(now) }
+    var roule: Bool { connected && ["D", "R"].contains(data?.gear ?? "") }
 }
 
-enum HomeCard: String, CaseIterable, Identifiable {
-    case jauge, commandes, recharge, mesures, stationnement, historique, etat
+// MARK: - Onglets
+enum Onglet: String, CaseIterable, Identifiable {
+    case voiture, recharge, trajets, sante, plus
     var id: String { rawValue }
     var label: String {
-        ["jauge": "Voiture, charge et autonomie", "recharge": "Recharge en cours", "mesures": "Mesures", "commandes": "Commandes",
-         "stationnement": "Emplacement", "historique": "Historique et analyses", "etat": "État du relais"][rawValue]!
+        switch self {
+        case .voiture: "Voiture"
+        case .recharge: "Recharge"
+        case .trajets: "Trajets"
+        case .sante: "Santé"
+        case .plus: "Plus"
+        }
     }
     var icon: String {
-        ["jauge": "car.side.fill", "recharge": "ev.charger.fill", "mesures": "square.grid.2x2.fill", "commandes": "lock.fill",
-         "stationnement": "location.fill", "historique": "chart.xyaxis.line", "etat": "dot.radiowaves.left.and.right"][rawValue]!
-    }
-    /// Ordre enregistré (les cartes absentes sont ajoutées à la fin)
-    static func ordre(_ s: String) -> [HomeCard] {
-        let l = s.split(separator: ",").compactMap { HomeCard(rawValue: String($0)) }
-        return l + allCases.filter { !l.contains($0) }
+        switch self {
+        case .voiture: "car"
+        case .recharge: "bolt"
+        case .trajets: "map"
+        case .sante: "heart.text.square"
+        case .plus: "ellipsis.circle"
+        }
     }
 }
 
 struct ContentView: View {
     @EnvironmentObject var r: BLERelay
     @EnvironmentObject var st: Store
+    @State private var sel: Onglet = .voiture
+    @State private var vus: Set<Onglet> = [.voiture]
     @State private var settings = false
-    @State private var confirm: KonaCommand?
-    @State private var revealed = false
-    @AppStorage("cfgMain") private var cfgMain = 60
-    @AppStorage("cfgExtra") private var cfgExtra = 300
-    @AppStorage("homeOrder") private var homeOrder = ""
-    @AppStorage("homeHidden") private var homeHidden = ""
     @AppStorage("theme") private var theme = "sombre"
     @AppStorage("accent") private var accent = "turquoise"
     @AppStorage("carColor") private var carColor = "gris"
-    @AppStorage("carName") private var carName = "Kona"
     @StateObject private var meteo = Meteo.shared
     @Environment(\.scenePhase) private var phase
 
-    private var cartes: [HomeCard] {
-        HomeCard.ordre(homeOrder).filter { !homeHidden.split(separator: ",").contains(Substring($0.rawValue)) }
-    }
-
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 24) {
-                    header
-                    ForEach(Array(cartes.enumerated()), id: \.element) { i, c in
-                        carte(c).modifier(Reveal(on: revealed, delay: 0.08 + Double(i) * 0.07))
+        TimelineView(.everyMinute) { tl in
+            ZStack {
+                ForEach(Onglet.allCases) { o in
+                    // chaque onglet garde sa navigation ; créé à la première visite
+                    if vus.contains(o) {
+                        page(o, now: tl.date)
+                            .opacity(sel == o ? 1 : 0)
+                            .scaleEffect(sel == o ? 1 : 0.985)
+                            .allowsHitTesting(sel == o)
+                            .accessibilityHidden(sel != o)
                     }
                 }
-                .padding(.horizontal, 16).padding(.bottom, 34)
             }
-            .scrollIndicators(.hidden)
-            .background(KonaBackdrop(glow: lueur).ignoresSafeArea())
-            .toolbar(.hidden, for: .navigationBar)
-            .sheet(isPresented: $settings) { SettingsView().environmentObject(r).environmentObject(st) }
             .overlay(alignment: .bottom) {
                 if let t = r.toast {
                     Text(t).font(.subheadline.weight(.semibold))
+                        .multilineTextAlignment(.center)
                         .padding(.horizontal, 18).padding(.vertical, 12)
                         .background(.ultraThinMaterial, in: Capsule())
                         .overlay(Capsule().strokeBorder(Color.primary.opacity(0.12)))
-                        .padding(.bottom, 24)
+                        .padding(.horizontal, 16).padding(.bottom, 12)
                         .transition(.move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.9)))
                 }
             }
-            .animation(.spring(duration: 0.4, bounce: 0.3), value: r.toast)
-            .task { await meteo.refresh() }
-            .task { revealed = true }
-            .refreshable { await r.fetchHA(); await meteo.refresh(force: true) }
-            .onChange(of: phase, initial: true) { _, p in
-                if p == .active { r.startHAPolling() } else { r.stopHAPolling(); if p == .background { BLERelay.scheduleHA() } }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                KonaTabBar(sel: sel, badges: badges(tl.date)) { o in
+                    vus.insert(o)
+                    withAnimation(.snappy(duration: 0.3)) { sel = o }
+                }
             }
-            .confirmationDialog(confirm.map { "\($0.label) la Kona ?" } ?? "", isPresented: Binding(get: { confirm != nil }, set: { if !$0 { confirm = nil } }), titleVisibility: .visible) {
-                if let c = confirm { Button(c.label) { r.send(c) } }
-                Button("Annuler", role: .cancel) {}
-            }
+        }
+        .background(KonaBackdrop().ignoresSafeArea())
+        .animation(.spring(duration: 0.4, bounce: 0.3), value: r.toast)
+        .sheet(isPresented: $settings) { SettingsView().environmentObject(r).environmentObject(st) }
+        .task { await meteo.refresh() }
+        .task { CarPaint.partager(carColor) }
+        .onChange(of: carColor) { _, v in CarPaint.partager(v) }
+        .onChange(of: phase, initial: true) { _, p in
+            if p == .active { r.startHAPolling() } else { r.stopHAPolling(); if p == .background { BLERelay.scheduleHA() } }
         }
         .preferredColorScheme(Theme.scheme)
         .tint(Theme.accent)
         .id(theme + accent)
     }
 
-    @ViewBuilder private func carte(_ c: HomeCard) -> some View {
-        switch c {
-        case .jauge: hero
-        case .recharge: chargeCard
-        case .mesures: metrics
-        case .commandes: actions
-        case .stationnement: parkingCard
-        case .historique: history
-        case .etat: footer
+    @ViewBuilder private func page(_ o: Onglet, now: Date) -> some View {
+        switch o {
+        case .voiture: VoiturePage(now: now, actif: sel == .voiture) { settings = true }
+        case .recharge: RechargePage(now: now)
+        case .trajets: TrajetsPage()
+        case .sante: SantePage()
+        case .plus: PlusPage { settings = true }
+        }
+    }
+
+    /// Pastilles de la barre : charge en cours, trajet en cours, 12 V bas, sauvegardes en attente
+    private func badges(_ now: Date) -> [Onglet: Color] {
+        var b: [Onglet: Color] = [:]
+        if r.enCharge(now) { b[.recharge] = .kTeal }
+        if st.curTrip != nil { b[.trajets] = .kBlue }
+        if let v = r.data?.v12d ?? r.data?.v12, v < 12.2 { b[.sante] = .kRed }
+        if r.pendingCount > 0 { b[.plus] = .kGold }
+        return b
+    }
+}
+
+// MARK: - Barre d'onglets flottante (comme le tableau de bord Home Assistant)
+struct KonaTabBar: View {
+    let sel: Onglet
+    let badges: [Onglet: Color]
+    let choisir: (Onglet) -> Void
+    @Namespace private var ns
+    @State private var taps: [Onglet: Int] = [:]
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(Onglet.allCases) { o in
+                Button {
+                    taps[o, default: 0] += 1
+                    choisir(o)
+                } label: {
+                    item(o)
+                }
+                .buttonStyle(PressStyle(scale: 0.92))
+                .accessibilityLabel(o.label)
+                .accessibilityAddTraits(sel == o ? .isSelected : [])
+            }
+        }
+        .padding(6)
+        .background {
+            RoundedRectangle(cornerRadius: 30, style: .continuous).fill(.ultraThinMaterial)
+                .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous).fill(Color.kBg1.opacity(Theme.clair ? 0.15 : 0.45)))
+                .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous).strokeBorder(Color.primary.opacity(0.12)))
+                .shadow(color: .black.opacity(0.35), radius: 18, y: 6)
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 2)
+        .sensoryFeedback(.selection, trigger: sel)
+    }
+
+    private func item(_ o: Onglet) -> some View {
+        let on = sel == o
+        return VStack(spacing: 4) {
+            Image(systemName: o.icon)
+                .font(.system(size: 20, weight: on ? .semibold : .regular))
+                .symbolEffect(.bounce, value: taps[o, default: 0])
+                .overlay(alignment: .topTrailing) {
+                    if let c = badges[o] {
+                        Circle().fill(c).frame(width: 8, height: 8)
+                            .overlay(Circle().strokeBorder(Color.kBg1, lineWidth: 1.5))
+                            .offset(x: 6, y: -4)
+                            .transition(.scale.combined(with: .opacity))
+                    }
+                }
+                .frame(height: 24)
+            Text(o.label).font(.caption2.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.8)
+        }
+        .foregroundStyle(on ? Color.primary : Color.kSub)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .background {
+            if on {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(Theme.accent.opacity(0.18))
+                    .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Theme.accent.opacity(0.25)))
+                    .matchedGeometryEffect(id: "pastille", in: ns)
+            }
+        }
+        .contentShape(Rectangle())
+        .animation(.spring(duration: 0.3), value: badges[o] != nil)
+    }
+}
+
+// MARK: - Onglet Voiture
+struct VoiturePage: View {
+    @EnvironmentObject var r: BLERelay
+    @EnvironmentObject var st: Store
+    @StateObject private var meteo = Meteo.shared
+    let now: Date
+    let actif: Bool
+    let ouvrirReglages: () -> Void
+    @AppStorage("carColor") private var carColor = "gris"
+    @AppStorage("carName") private var carName = "Kona"
+    @State private var confirm: KonaCommand?
+    @State private var shown = false
+
+    var body: some View {
+        let charge = r.enCharge(now)
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 24) {
+                    header.modifier(Reveal(on: shown, delay: 0))
+                    hero.modifier(Reveal(on: shown, delay: 0.08))
+                    actions.modifier(Reveal(on: shown, delay: 0.16))
+                    if charge, let c = st.curCharge, (c.samples?.count ?? 0) >= 2 {
+                        ChargeCurveCard(c: c).modifier(Reveal(on: shown, delay: 0.24))
+                    }
+                    if let pk = st.parking, !r.roule {
+                        ParkingCard(pk: pk).modifier(Reveal(on: shown, delay: 0.24))
+                    }
+                }
+                .padding(.horizontal, 16).padding(.bottom, 24)
+            }
+            .konaScroll(glow: lueur, animated: actif)
+            .refreshable { await r.fetchHA(); await meteo.refresh(force: true) }
+            .task { shown = true }
+            .confirmationDialog(confirm.map { "\($0.label) la Kona ?" } ?? "", isPresented: Binding(get: { confirm != nil }, set: { if !$0 { confirm = nil } }), titleVisibility: .visible) {
+                if let c = confirm { Button(c.label) { r.send(c) } }
+                Button("Annuler", role: .cancel) {}
+            }
         }
     }
 
     /// Halo du fond : vert en charge, bleu en roulant, bleu-vert sinon
     private var lueur: Color {
-        if r.data?.charging == true { return .kTeal }
-        if r.connected, ["D", "R"].contains(r.data?.gear ?? "") { return .kBlue }
-        return Color(red: 0.32, green: 0.58, blue: 0.68)
+        if r.enCharge(now) { return .kTeal }
+        if r.roule { return .kBlue }
+        return KonaBackdrop.defaut
     }
 
     // MARK: En-tête (réglages, nom, liaison)
     private var header: some View {
         HStack {
-            Button { settings = true } label: {
+            Button(action: ouvrirReglages) {
                 Image(systemName: "gearshape.fill").font(.title3).foregroundStyle(Color.primary.opacity(0.85))
                     .frame(width: 44, height: 44)
             }
             .buttonStyle(PressStyle())
+            .accessibilityLabel("Réglages")
             Spacer()
             VStack(spacing: 6) {
                 Text(carName.isEmpty ? "Kona" : carName)
@@ -156,7 +268,7 @@ struct ContentView: View {
     }
 
     private var linkPill: some View {
-        let viaHA = r.haSync.map { -$0.timeIntervalSinceNow < 180 } == true
+        let viaHA = r.haSync.map { now.timeIntervalSince($0) < 180 } == true
         let (txt, col): (String, Color) = r.connected ? ("Bluetooth", .kBlue)
             : viaHA ? ("Maison", .kTeal)
             : r.status.hasPrefix("Recherche") ? ("Recherche", .kSub) : ("En attente", .kSub)
@@ -174,11 +286,12 @@ struct ContentView: View {
     private var hero: some View {
         let d = r.data
         let soc = d?.soc ?? d?.socBms
+        let charge = r.enCharge(now)
         let autonomie = meteo.range(soc) ?? st.range(soc)
         let (etat, couleur) = statut(d)
         return VStack(spacing: 6) {
             HStack(alignment: .center, spacing: 14) {
-                BatteryBar(soc: soc, charging: d?.charging == true)
+                BatteryBar(soc: soc, charging: charge)
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(autonomie.map { "\($0)" } ?? "—")
                         .font(.system(size: 48, weight: .semibold, design: .rounded))
@@ -192,8 +305,8 @@ struct ContentView: View {
                 .contentTransition(.interpolate)
                 .animation(.snappy, value: etat)
             lecture(d).font(.footnote).foregroundStyle(Color.kSub)
-            KonaCarScene(soc: soc, charging: d?.charging == true, gear: d?.gear, speed: d?.speed, live: r.connected,
-                         paint: CarPaint(rawValue: carColor) ?? .gris, done: r.done, eco: r.eco)
+            KonaCarScene(soc: soc, charging: charge, gear: d?.gear, speed: d?.speed, live: r.connected,
+                         paint: CarPaint(rawValue: carColor) ?? .gris, done: r.done, eco: r.eco, actif: actif)
                 .padding(.horizontal, -16)
                 .padding(.top, 4)
                 .visualEffect { content, proxy in
@@ -208,7 +321,9 @@ struct ContentView: View {
 
     private func statut(_ d: KonaData?) -> (String, Color) {
         guard let d else { return ("Aucune lecture", Color.kSub) }
-        if d.charging { return ("En charge · \(fr(abs(d.kw ?? 0))) kW", Color.kTeal) }
+        if d.charging {
+            return r.frais(now) ? ("En charge · \(fr(abs(d.kw ?? 0))) kW", Color.kTeal) : ("En charge à la dernière lecture", Color.kSub)
+        }
         if r.connected {
             switch d.gear ?? "" {
             case "D": return ("En route" + (d.speed.map { " · \($0) km/h" } ?? ""), Color.kBlue)
@@ -222,20 +337,20 @@ struct ContentView: View {
 
     private func lecture(_ d: KonaData?) -> Text {
         guard let d else { return Text("Aucune lecture pour l'instant") }
-        let src = r.connected ? " · Bluetooth" : d.src == "ha" ? " · via Home Assistant" : " · dernière connue"
-        return Text("Lecture il y a ") + Text(d.date, style: .relative) + Text(src)
+        let src = r.connected ? "Bluetooth" : d.src == "ha" ? "via Home Assistant" : "dernière connue"
+        return Text("Lecture il y a \(d.date, style: .relative) · \(src)")
     }
 
     private func heroStats(_ d: KonaData?, _ soc: Double?) -> some View {
         var items: [(String, String, Color)] = []
         items.append((soc.map { "\(Int($0.rounded())) %" } ?? "—", "Charge", Color.soc(soc)))
-        if let eta = r.chargeETA(d) {
-            let fin = Date().addingTimeInterval(Double(eta.min) * 60).formatted(date: .omitted, time: .shortened)
+        if r.frais(now), let eta = r.chargeETA(d) {
+            let fin = now.addingTimeInterval(Double(eta.min) * 60).formatted(date: .omitted, time: .shortened)
             items.append((fin, "\(eta.cible) % atteints", Color.kTeal))
         } else {
-            items.append((d?.kw.map { "\(fr(abs($0))) kW" } ?? "—", d?.charging == true ? "Charge" : "Puissance", Color.primary))
+            items.append((d?.kw.map { "\(fr(abs($0))) kW" } ?? "—", r.enCharge(now) ? "Charge" : "Puissance", Color.primary))
         }
-        if r.connected, let v = d?.speed, ["D", "R"].contains(d?.gear ?? "") {
+        if r.roule, let v = d?.speed {
             items.append(("\(v) km/h", "Vitesse", Color.primary))
         } else {
             items.append((d?.gear ?? "—", "Rapport", Color.primary))
@@ -273,146 +388,66 @@ struct ContentView: View {
     private func color(_ c: KonaCommand) -> Color {
         switch c { case .deverrouiller: .kGold; case .verrouiller: .kTeal; case .feux: .kBlue; case .klaxon: .kRed }
     }
+}
 
-    // MARK: Recharge en cours (courbes)
-    @ViewBuilder private var chargeCard: some View {
-        if let c = st.curCharge, let sm = c.samples, sm.count >= 2 {
-            Card {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .lastTextBaseline) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Label("RECHARGE EN COURS", systemImage: "bolt.fill")
-                                .font(.caption.weight(.semibold)).tracking(1.1).foregroundStyle(Color.kTeal)
-                                .symbolEffect(.pulse)
-                            Text("+\(fr(c.kwh)) kWh").font(.title2.weight(.semibold).monospacedDigit())
-                                .contentTransition(.numericText())
-                        }
-                        Spacer()
-                        Text("\(Int(c.end.timeIntervalSince(c.start) / 60)) min").font(.subheadline.monospacedDigit()).foregroundStyle(Color.kSub)
-                    }
-                    PowerChart(pts: sm.map { (m: Double($0.s) / 60, kw: $0.kw) }).frame(height: 110)
-                    let socs = sm.compactMap { x in x.soc.map { (m: Double(x.s) / 60, soc: $0) } }
-                    if socs.count >= 2 { SocChart(pts: socs).frame(height: 90) }
-                }
-            }
-        }
-    }
+// MARK: - Éléments communs
 
-    // MARK: Mesures
-    private var metrics: some View {
-        let d = r.data
-        let v12 = d?.v12d ?? d?.v12
-        let items: [(String, String, Color)] = [
-            (d?.volts.map { "\(fr($0, 0)) V" } ?? "—", "Tension HV", Color.primary),
-            (d?.tMin.map { "\($0)–\(d?.tMax ?? $0) °C" } ?? "—", "Batterie", Color.primary),
-            (v12.map { "\(fr($0, 2)) V" } ?? "—", d?.v12d != nil ? "12 V mesuré" : "12 V", (v12 ?? 13) < 12.2 ? Color.kRed : Color.primary),
-            (d?.odo.map { "\($0.formatted())" } ?? "—", "Kilomètres", Color.primary),
-        ]
-        return Card { StatStrip(items: items) }
-    }
-
-    // MARK: Emplacement
-    @ViewBuilder private var parkingCard: some View {
-        if let pk = st.parking, !(r.connected && ["D", "R", "N"].contains(r.data?.gear ?? "")) {
-            ParkingCard(pk: pk)
-        }
-    }
-
-    // MARK: Historique et analyses (liste façon Tesla)
-    private var history: some View {
-        let d = r.data
-        let v12 = d?.v12d ?? d?.v12
-        return VStack(alignment: .leading, spacing: 0) {
-            titre("Activité")
-            menu(0, "map", "Trajets", st.curTrip != nil ? "Trajet en cours" : "\(st.trips.count) trajets · \(fr(st.conso)) kWh/100 km",
-                 actif: st.curTrip != nil) { TripsView().environmentObject(st) }
-            menu(1, "ev.charger", "Recharges", st.curCharge != nil ? "Recharge en cours" : "\(st.charges.count) sur borne · maison",
-                 actif: st.curCharge != nil) { ChargesView().environmentObject(st).environmentObject(r) }
-            menu(2, "calendar", "Calendrier", "Jours de route et de recharge") { CalendarView().environmentObject(st) }
-            menu(3, "arrow.triangle.swap", "Trajets répétés", "Tes trajets habituels comparés") { RecurringView().environmentObject(st) }
-            menu(4, "speedometer", "Conso et vitesse", "kWh/100 km selon la vitesse") { SpeedConsoView().environmentObject(st) }
-            menu(5, "chart.line.uptrend.xyaxis", "Comparer les bornes", "Puissance selon le niveau de charge") { BornesView().environmentObject(st) }
-            menu(6, "chart.bar", "Bilans mensuels", "Kilomètres, coûts et économies") { BilansView().environmentObject(r) }
-            titre("Véhicule").padding(.top, 14)
-            menu(7, "bolt.batteryblock", "Batterie haute tension", "État de santé et capacité") { SOHView().environmentObject(r) }
-            menu(8, "minus.plus.batteryblock", "Batterie 12 V", v12.map { "\(fr($0, 2)) V · suivi au repos" } ?? "Suivi au repos",
-                 alerte: (v12 ?? 13) < 12.2) { Batterie12View().environmentObject(r) }
-            menu(9, "wrench.and.screwdriver", "Carnet d'entretien", "Révisions, pneus, factures") { EntretienView() }
-            menu(10, "car", "Ma Kona", "Véhicule, logiciels, codes défaut") { MaKonaView().environmentObject(r).environmentObject(st) }
-            menu(11, "list.bullet.rectangle.portrait", "Journal", "\(st.log.count) événements") { LogView().environmentObject(st) }
-        }
-    }
-
-    private func titre(_ t: String) -> some View {
-        Text(t.uppercased()).font(.caption.weight(.semibold)).tracking(1.4).foregroundStyle(Color.kSub)
-            .padding(.leading, 4).padding(.bottom, 2)
-    }
-
-    private func menu<D: View>(_ i: Int, _ icon: String, _ t: String, _ sub: String, actif: Bool = false, alerte: Bool = false,
-                               @ViewBuilder _ dest: () -> D) -> some View {
-        let page = dest()
-        let tint: Color = alerte ? .kRed : (actif ? .kTeal : Color.primary.opacity(0.9))
-        return NavigationLink { page.konaPage() } label: {
-            TeslaRow(icon: icon, title: t, sub: sub, tint: tint, actif: actif)
-        }
-        .buttonStyle(RowStyle())
-        .opacity(revealed ? 1 : 0)
-        .offset(x: revealed ? 0 : 24)
-        .animation(.spring(duration: 0.55, bounce: 0.2).delay(0.35 + Double(i) * 0.035), value: revealed)
-    }
-
-    // MARK: État du relais
-    private var footer: some View {
-        Card {
-            VStack(spacing: 10) {
-                row("paperplane.fill", "Envoi à Home Assistant", r.lastSent.map { $0.formatted(date: .omitted, time: .standard) } ?? "—")
-                row("location.fill", "Position GPS", r.hasGPS ? "Active" : "En attente")
-                row("point.topleft.down.to.point.bottomright.curvepath.fill", "Trajets synchronisés", r.tripSync.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "—")
-                row("timer", "Cadences", "\(duree(cfgMain)) · \(duree(cfgExtra))")
-            }
-        }
-        .onTapGesture { settings = true }
-    }
-
-    private func row(_ i: String, _ t: String, _ v: String) -> some View {
-        HStack {
-            Label(t, systemImage: i).font(.subheadline).foregroundStyle(Color.kSub)
-            Spacer()
-            Text(v).font(.subheadline.weight(.semibold).monospacedDigit())
-        }
+struct Card<Content: View>: View {
+    let content: Content
+    init(@ViewBuilder content: () -> Content) { self.content = content() }
+    var body: some View {
+        content
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .strokeBorder(LinearGradient(colors: [Color.primary.opacity(0.14), Color.primary.opacity(0.03)],
+                                                 startPoint: .top, endPoint: .bottom), lineWidth: 1)
+            )
     }
 }
 
-// MARK: - Éléments de l'écran d'accueil
-
-/// Fond façon Tesla : halo bleu-vert en haut qui dérive lentement, noir en bas
+/// Fond façon Tesla : halo bleu-vert en haut (qui dérive lentement sur l'onglet Voiture), noir en bas
 struct KonaBackdrop: View {
-    var glow = Color(red: 0.32, green: 0.58, blue: 0.68)
-    var animated = true
-    @State private var drift = false
+    static let defaut = Color(red: 0.32, green: 0.58, blue: 0.68)
+    var glow = KonaBackdrop.defaut
+    var animated = false
     @Environment(\.accessibilityReduceMotion) private var reduce
 
     var body: some View {
-        ZStack {
-            LinearGradient(colors: [.kBg2, .kBg1, .kBg1], startPoint: .top, endPoint: .bottom)
-            RadialGradient(colors: [glow.opacity(Theme.clair ? 0.22 : 0.38), glow.opacity(0)],
-                           center: .top, startRadius: 10, endRadius: 460)
-                .scaleEffect(drift ? 1.18 : 0.95, anchor: .top)
-                .offset(x: drift ? 36 : -36, y: -40)
+        TimelineView(.animation(minimumInterval: 1.0 / 20, paused: !animated || reduce)) { tl in
+            let k = animated && !reduce
+                ? sin(tl.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 3600) * 2 * .pi / 16) : 0
+            ZStack {
+                LinearGradient(colors: [.kBg2, .kBg1, .kBg1], startPoint: .top, endPoint: .bottom)
+                RadialGradient(colors: [glow.opacity(Theme.clair ? 0.22 : 0.38), glow.opacity(0)],
+                               center: .top, startRadius: 10, endRadius: 460)
+                    .scaleEffect(1.06 + 0.12 * k, anchor: .top)
+                    .offset(x: 36 * k, y: -40)
+            }
         }
         .animation(.easeInOut(duration: 1.5), value: glow)
-        .task {
-            guard animated, !reduce else { return }
-            withAnimation(.easeInOut(duration: 8).repeatForever(autoreverses: true)) { drift = true }
-        }
     }
 }
 
 extension View {
-    /// Pages secondaires : même fond que l'accueil
+    /// Pages secondaires : même fond que l'accueil, lignes de liste translucides
     func konaPage() -> some View {
         scrollContentBackground(.hidden)
-            .background(KonaBackdrop(animated: false).ignoresSafeArea())
+            .background(KonaBackdrop().ignoresSafeArea())
+    }
+
+    /// Pages d'onglet : défilement sans barre de navigation, fond Kona
+    func konaScroll(glow: Color = KonaBackdrop.defaut, animated: Bool = false) -> some View {
+        scrollIndicators(.hidden)
+            .toolbar(.hidden, for: .navigationBar)
+            .background(KonaBackdrop(glow: glow, animated: animated).ignoresSafeArea())
+    }
+
+    /// Lignes de liste translucides sur le fond Kona
+    func konaRows() -> some View {
+        listRowBackground(Color.primary.opacity(0.06))
     }
 }
 
@@ -448,6 +483,54 @@ struct RowStyle: ButtonStyle {
             )
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.easeOut(duration: 0.18), value: configuration.isPressed)
+    }
+}
+
+/// Titre centré d'un onglet
+struct PageTitle: View {
+    let titre: String
+    var sous = ""
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(titre).font(.title2.weight(.semibold))
+            if !sous.isEmpty {
+                Text(sous).font(.footnote).foregroundStyle(Color.kSub).multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 10)
+    }
+}
+
+/// Groupe de lignes avec petit titre en capitales
+struct MenuSection<Content: View>: View {
+    var titre = ""
+    @ViewBuilder let content: () -> Content
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if !titre.isEmpty {
+                Text(titre.uppercased()).font(.caption.weight(.semibold)).tracking(1.4).foregroundStyle(Color.kSub)
+                    .padding(.leading, 4).padding(.bottom, 2)
+            }
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Ligne de menu qui ouvre une page
+struct MenuLink<D: View>: View {
+    let icon: String
+    let title: String
+    let sub: String
+    var tint: Color = Color.primary.opacity(0.9)
+    var actif = false
+    @ViewBuilder let dest: () -> D
+    var body: some View {
+        NavigationLink { dest().konaPage() } label: {
+            TeslaRow(icon: icon, title: title, sub: sub, tint: tint, actif: actif)
+        }
+        .buttonStyle(RowStyle())
     }
 }
 
@@ -521,7 +604,7 @@ struct BatteryBar: View {
     }
 }
 
-/// Reflet lumineux qui balaie la batterie en charge
+/// Reflet lumineux qui balaie une batterie en charge
 struct Shimmer: View {
     @State private var go = false
     var body: some View {
@@ -611,6 +694,32 @@ struct Spinner: View {
     }
 }
 
+/// Courbes de la recharge en cours
+struct ChargeCurveCard: View {
+    let c: Charge
+    var body: some View {
+        let sm = c.samples ?? []
+        Card {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .lastTextBaseline) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label("RECHARGE EN COURS", systemImage: "bolt.fill")
+                            .font(.caption.weight(.semibold)).tracking(1.1).foregroundStyle(Color.kTeal)
+                            .symbolEffect(.pulse)
+                        Text("+\(fr(c.kwh)) kWh").font(.title2.weight(.semibold).monospacedDigit())
+                            .contentTransition(.numericText())
+                    }
+                    Spacer()
+                    Text("\(Int(c.end.timeIntervalSince(c.start) / 60)) min").font(.subheadline.monospacedDigit()).foregroundStyle(Color.kSub)
+                }
+                PowerChart(pts: sm.map { (m: Double($0.s) / 60, kw: $0.kw) }).frame(height: 110)
+                let socs = sm.compactMap { x in x.soc.map { (m: Double(x.s) / 60, soc: $0) } }
+                if socs.count >= 2 { SocChart(pts: socs).frame(height: 90) }
+            }
+        }
+    }
+}
+
 /// Emplacement de la voiture garée : adresse, carte, itinéraire à pied
 struct ParkingCard: View {
     let pk: Parking
@@ -626,7 +735,7 @@ struct ParkingCard: View {
                     Text(adresse ?? "Garée ici").font(.caption).foregroundStyle(Color.kSub).lineLimit(1)
                 }
                 Spacer()
-                (Text("il y a ") + Text(pk.date, style: .relative)).font(.caption).foregroundStyle(Color.kSub)
+                Text("il y a \(pk.date, style: .relative)").font(.caption).foregroundStyle(Color.kSub)
             }
             .padding(.horizontal, 4)
             Map(initialPosition: .region(MKCoordinateRegion(center: c, latitudinalMeters: 350, longitudinalMeters: 350))) {
