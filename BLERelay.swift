@@ -79,6 +79,18 @@ final class BLERelay: NSObject, ObservableObject, CBCentralManagerDelegate, CBPe
                               options: [CBCentralManagerOptionRestoreIdentifierKey: "fr.flo.konarelay.central"])
     }
 
+    /// Aperçus Xcode uniquement (Apercus.swift) : instance isolée, sans Bluetooth, GPS ni notifications
+    init(apercu k: KonaData?, connecte: Bool) {
+        super.init()
+        ud.register(defaults: ["cfgMain": 60, "cfgExtra": 300, "consoDefaut": 15.5, "prixMaison": 0.21, "prixBorne": 0.45, "socCible": 80])
+        data = k
+        connected = connecte
+        status = connecte ? "Connecté à la Kona" : "Recherche de l'ESP32"
+        haSync = connecte ? nil : Date()
+        hasGPS = connecte
+        lastSent = Date().addingTimeInterval(-40)
+    }
+
     // MARK: Central
     func centralManager(_ c: CBCentralManager, willRestoreState dict: [String: Any]) {
         if let p = (dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral])?.first {

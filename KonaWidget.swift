@@ -273,3 +273,22 @@ struct KonaWidgets: WidgetBundle {
         KonaLiveActivity()
     }
 }
+
+// MARK: - Aperçus Xcode des widgets (données fictives)
+struct KonaWidget_Previews: PreviewProvider {
+    static let garee = KonaEntry(date: .now, s: WidgetState(soc: 78, range: 325, kw: 0, gear: "P", v12: 12.62))
+    static let charge = KonaEntry(date: .now, s: WidgetState(soc: 64, range: 268, kw: -7.2, charging: true, gear: "P", v12: 12.71, minLeft: 95, cible: 80))
+
+    static func fond(_ v: KonaWidgetView) -> some View {
+        v.containerBackground(for: .widget) { LinearGradient(colors: [.kBg2, .kBg1], startPoint: .top, endPoint: .bottom) }
+    }
+
+    static var previews: some View {
+        Group {
+            fond(KonaWidgetView(e: garee)).previewContext(WidgetPreviewContext(family: .systemSmall)).previewDisplayName("Petit · garée")
+            fond(KonaWidgetView(e: charge)).previewContext(WidgetPreviewContext(family: .systemSmall)).previewDisplayName("Petit · en charge")
+            fond(KonaWidgetView(e: garee)).previewContext(WidgetPreviewContext(family: .systemMedium)).previewDisplayName("Moyen · garée")
+            fond(KonaWidgetView(e: charge)).previewContext(WidgetPreviewContext(family: .systemMedium)).previewDisplayName("Moyen · en charge")
+        }
+    }
+}
