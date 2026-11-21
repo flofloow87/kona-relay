@@ -51,6 +51,8 @@ struct ContentView: View {
     @State private var sel: Onglet = .voiture
     @State private var vus: Set<Onglet> = [.voiture]
     @State private var settings = false
+    @State private var racine: [Onglet: Int] = [:]       // réappui sur l'onglet actif : page recréée (retour en haut)
+    @Environment(\.accessibilityReduceMotion) private var reduce
     @AppStorage("theme") private var theme = "sombre"
     @AppStorage("accent") private var accent = "turquoise"
     @AppStorage("carColor") private var carColor = "gris"
@@ -64,8 +66,9 @@ struct ContentView: View {
                     // chaque onglet garde sa navigation ; créé à la première visite
                     if vus.contains(o) {
                         page(o, now: tl.date)
+                            .id("\(o.rawValue)-\(racine[o, default: 0])")
                             .opacity(sel == o ? 1 : 0)
-                            .scaleEffect(sel == o ? 1 : 0.985)
+                            .scaleEffect(sel == o || reduce ? 1 : 0.985)
                             .allowsHitTesting(sel == o)
                             .accessibilityHidden(sel != o)
                     }
@@ -84,13 +87,21 @@ struct ContentView: View {
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 KonaTabBar(sel: sel, badges: badges(tl.date)) { o in
-                    vus.insert(o)
-                    withAnimation(.snappy(duration: 0.3)) { sel = o }
+                    if o == sel {
+                        // deuxième appui : retour à la première page de l'onglet, en haut
+                        withAnimation(.snappy(duration: 0.3)) { racine[o, default: 0] += 1 }
+                    } else {
+                        vus.insert(o)
+                        withAnimation(.snappy(duration: 0.3)) { sel = o }
+                    }
                 }
             }
         }
         .background(KonaBackdrop().ignoresSafeArea())
         .animation(.spring(duration: 0.4, bounce: 0.3), value: r.toast)
+        .onChange(of: r.toast) { _, t in
+            if let t { AccessibilityNotification.Announcement(t).post() }
+        }
         .sheet(isPresented: $settings) { SettingsView().environmentObject(r).environmentObject(st) }
         .task { await meteo.refresh() }
         .task { CarPaint.partager(carColor) }
@@ -114,20 +125,26 @@ struct ContentView: View {
     }
 
     /// Pastilles de la barre : charge en cours, trajet en cours, 12 V bas, sauvegardes en attente
-    private func badges(_ now: Date) -> [Onglet: Color] {
-        var b: [Onglet: Color] = [:]
-        if r.enCharge(now) { b[.recharge] = .kTeal }
-        if st.curTrip != nil { b[.trajets] = .kBlue }
-        if let v = r.data?.v12d ?? r.data?.v12, v < 12.2 { b[.sante] = .kRed }
-        if r.pendingCount > 0 { b[.plus] = .kGold }
+    private func badges(_ now: Date) -> [Onglet: Pastille] {
+        var b: [Onglet: Pastille] = [:]
+        if r.enCharge(now) { b[.recharge] = Pastille(couleur: .kTeal, texte: "en charge") }
+        if st.curTrip != nil { b[.trajets] = Pastille(couleur: .kBlue, texte: "trajet en cours") }
+        if let v = r.data?.v12d ?? r.data?.v12, v < 12.2 { b[.sante] = Pastille(couleur: .kRed, texte: "batterie 12 V faible") }
+        if r.pendingCount > 0 { b[.plus] = Pastille(couleur: .kGold, texte: "\(r.pendingCount) sauvegardes en attente") }
         return b
     }
+}
+
+/// Pastille d'onglet : couleur affichée, texte lu par VoiceOver
+struct Pastille: Equatable {
+    let couleur: Color
+    let texte: String
 }
 
 // MARK: - Barre d'onglets flottante (comme le tableau de bord Home Assistant)
 struct KonaTabBar: View {
     let sel: Onglet
-    let badges: [Onglet: Color]
+    let badges: [Onglet: Pastille]
     let choisir: (Onglet) -> Void
     @Namespace private var ns
     @State private var taps: [Onglet: Int] = [:]
@@ -143,9 +160,13 @@ struct KonaTabBar: View {
                 }
                 .buttonStyle(PressStyle(scale: 0.92))
                 .accessibilityLabel(o.label)
+                .accessibilityValue(badges[o]?.texte ?? "")
                 .accessibilityAddTraits(sel == o ? .isSelected : [])
+                .accessibilityShowsLargeContentViewer { Label(o.label, systemImage: o.icon) }
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Onglets")
         .padding(6)
         .background {
             RoundedRectangle(cornerRadius: 30, style: .continuous).fill(.ultraThinMaterial)
@@ -155,6 +176,7 @@ struct KonaTabBar: View {
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 2)
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)   // comme la barre iOS : loupe au lieu de grossir
         .sensoryFeedback(.selection, trigger: sel)
     }
 
@@ -162,11 +184,11 @@ struct KonaTabBar: View {
         let on = sel == o
         return VStack(spacing: 4) {
             Image(systemName: o.icon)
-                .font(.system(size: 20, weight: on ? .semibold : .regular))
+                .font(.title3.weight(on ? .semibold : .regular))
                 .symbolEffect(.bounce, value: taps[o, default: 0])
                 .overlay(alignment: .topTrailing) {
-                    if let c = badges[o] {
-                        Circle().fill(c).frame(width: 8, height: 8)
+                    if let p = badges[o] {
+                        Circle().fill(p.couleur).frame(width: 8, height: 8)
                             .overlay(Circle().strokeBorder(Color.kBg1, lineWidth: 1.5))
                             .offset(x: 6, y: -4)
                             .transition(.scale.combined(with: .opacity))
@@ -203,6 +225,8 @@ struct VoiturePage: View {
     @AppStorage("carName") private var carName = "Kona"
     @State private var confirm: KonaCommand?
     @State private var shown = false
+    @ScaledMetric(relativeTo: .largeTitle) private var tailleAuto: CGFloat = 48
+    @Environment(\.dynamicTypeSize) private var dts
 
     var body: some View {
         let charge = r.enCharge(now)
@@ -243,7 +267,7 @@ struct VoiturePage: View {
         HStack {
             Button(action: ouvrirReglages) {
                 Image(systemName: "gearshape.fill").font(.title3).foregroundStyle(Color.primary.opacity(0.85))
-                    .frame(width: 44, height: 44)
+                    .frame(minWidth: 44, minHeight: 44)
             }
             .buttonStyle(PressStyle())
             .accessibilityLabel("Réglages")
@@ -262,7 +286,9 @@ struct VoiturePage: View {
                     Color.clear
                 }
             }
-            .frame(width: 44, height: 44)
+            .frame(minWidth: 44, minHeight: 44)
+            .accessibilityLabel(r.eco ? "Mode économie" : "")
+            .accessibilityHidden(!r.eco)
         }
         .padding(.top, 4)
     }
@@ -294,7 +320,7 @@ struct VoiturePage: View {
                 BatteryBar(soc: soc, charging: charge)
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(autonomie.map { "\($0)" } ?? "—")
-                        .font(.system(size: 48, weight: .semibold, design: .rounded))
+                        .font(.system(size: min(tailleAuto, 84), weight: .semibold, design: .rounded))
                         .monospacedDigit()
                         .contentTransition(.numericText(value: Double(autonomie ?? 0)))
                     Text("km").font(.title3.weight(.medium)).foregroundStyle(Color.kSub)
@@ -364,7 +390,7 @@ struct VoiturePage: View {
     // MARK: Commandes (boutons ronds)
     private var actions: some View {
         VStack(spacing: 12) {
-            HStack(spacing: 0) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: dts.isAccessibilitySize ? 2 : 4), spacing: 16) {
                 ForEach(KonaCommand.allCases) { c in
                     Button {
                         if c.needsConfirm { confirm = c } else { r.send(c) }
@@ -373,6 +399,8 @@ struct VoiturePage: View {
                     }
                     .buttonStyle(PressStyle(scale: 0.88))
                     .disabled(r.busy != nil)
+                    .opacity(r.busy != nil && r.busy != c ? 0.35 : 1)
+                    .animation(.easeInOut(duration: 0.2), value: r.busy)
                     .frame(maxWidth: .infinity)
                     .sensoryFeedback(.impact(weight: .medium), trigger: r.busy == c)
                 }
@@ -455,11 +483,12 @@ extension View {
 struct Reveal: ViewModifier {
     let on: Bool
     let delay: Double
+    @Environment(\.accessibilityReduceMotion) private var reduce
     func body(content: Content) -> some View {
         content
             .opacity(on ? 1 : 0)
-            .offset(y: on ? 0 : 20)
-            .animation(.spring(duration: 0.65, bounce: 0.2).delay(delay), value: on)
+            .offset(y: on || reduce ? 0 : 20)
+            .animation(reduce ? .easeOut(duration: 0.25) : .spring(duration: 0.65, bounce: 0.2).delay(delay), value: on)
     }
 }
 
@@ -541,17 +570,18 @@ struct TeslaRow: View {
     let sub: String
     let tint: Color
     var actif = false
+    @Environment(\.dynamicTypeSize) private var dts
 
     var body: some View {
         HStack(spacing: 16) {
-            Image(systemName: icon).font(.system(size: 19, weight: .medium)).foregroundStyle(tint)
+            Image(systemName: icon).font(.title3.weight(.medium)).foregroundStyle(tint)
                 .frame(width: 28)
                 .symbolEffect(.pulse, isActive: actif)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title.uppercased()).font(.subheadline.weight(.semibold)).tracking(0.9)
                     .foregroundStyle(Color.primary.opacity(0.92))
                 if !sub.isEmpty {
-                    Text(sub).font(.caption).foregroundStyle(actif ? tint : Color.kSub).lineLimit(1)
+                    Text(sub).font(.caption).foregroundStyle(actif ? tint : Color.kSub).lineLimit(dts.isAccessibilitySize ? 3 : 1)
                 }
             }
             Spacer(minLength: 8)
@@ -623,9 +653,10 @@ struct Shimmer: View {
 struct PulseDot: View {
     let color: Color
     let active: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduce
     var body: some View {
         ZStack {
-            if active {
+            if active && !reduce {
                 Circle().stroke(color, lineWidth: 1.5)
                     .phaseAnimator([false, true]) { content, on in
                         content.scaleEffect(on ? 2.6 : 1).opacity(on ? 0 : 0.8)
@@ -639,20 +670,44 @@ struct PulseDot: View {
     }
 }
 
-/// Bandeau de valeurs séparées par de fins traits
+/// Bandeau de valeurs séparées par de fins traits ; liste lisible aux grandes tailles de texte
 struct StatStrip: View {
     let items: [(String, String, Color)]
+    @Environment(\.dynamicTypeSize) private var dts
+
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(items.indices, id: \.self) { i in
-                if i > 0 { Rectangle().fill(Color.primary.opacity(0.1)).frame(width: 1, height: 30) }
-                VStack(spacing: 3) {
-                    Text(items[i].0).font(.subheadline.weight(.semibold).monospacedDigit()).foregroundStyle(items[i].2)
-                        .lineLimit(1).minimumScaleFactor(0.6)
-                        .contentTransition(.numericText())
-                    Text(items[i].1).font(.caption2).foregroundStyle(Color.kSub).lineLimit(1).minimumScaleFactor(0.8)
+        Group {
+            if dts.isAccessibilitySize {
+                VStack(spacing: 10) {
+                    ForEach(items.indices, id: \.self) { i in
+                        if i > 0 { Divider().overlay(Color.primary.opacity(0.08)) }
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(items[i].1).font(.subheadline).foregroundStyle(Color.kSub)
+                            Spacer(minLength: 8)
+                            Text(items[i].0).font(.subheadline.weight(.semibold).monospacedDigit()).foregroundStyle(items[i].2)
+                                .multilineTextAlignment(.trailing)
+                        }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(items[i].1)
+                        .accessibilityValue(items[i].0)
+                    }
                 }
-                .frame(maxWidth: .infinity)
+            } else {
+                HStack(spacing: 0) {
+                    ForEach(items.indices, id: \.self) { i in
+                        if i > 0 { Rectangle().fill(Color.primary.opacity(0.1)).frame(width: 1, height: 30) }
+                        VStack(spacing: 3) {
+                            Text(items[i].0).font(.subheadline.weight(.semibold).monospacedDigit()).foregroundStyle(items[i].2)
+                                .lineLimit(1).minimumScaleFactor(0.75)
+                                .contentTransition(.numericText())
+                            Text(items[i].1).font(.caption2).foregroundStyle(Color.kSub).lineLimit(1).minimumScaleFactor(0.8)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(items[i].1)
+                        .accessibilityValue(items[i].0)
+                    }
+                }
             }
         }
         .animation(.snappy, value: items.map { $0.0 })
@@ -664,6 +719,7 @@ struct CmdCircle: View {
     let c: KonaCommand
     let busy: Bool
     let tint: Color
+    @ScaledMetric(relativeTo: .title2) private var d: CGFloat = 64
 
     var body: some View {
         VStack(spacing: 8) {
@@ -671,15 +727,18 @@ struct CmdCircle: View {
                 Circle().fill(LinearGradient(colors: [Color.primary.opacity(0.10), Color.primary.opacity(0.03)], startPoint: .top, endPoint: .bottom))
                 Circle().strokeBorder(Color.primary.opacity(busy ? 0 : 0.22), lineWidth: 1.2)
                 if busy { Spinner(tint: tint) }
-                Image(systemName: c.icon).font(.system(size: 22, weight: .medium))
+                Image(systemName: c.icon).font(.title2.weight(.medium))
                     .foregroundStyle(busy ? tint : Color.primary.opacity(0.9))
                     .symbolEffect(.bounce, value: busy)
             }
-            .frame(width: 64, height: 64)
+            .frame(width: min(d, 92), height: min(d, 92))
             .shadow(color: tint.opacity(busy ? 0.55 : 0), radius: 14)
             Text(c.label).font(.caption.weight(.medium)).foregroundStyle(busy ? tint : Color.kSub)
         }
         .animation(.easeInOut(duration: 0.25), value: busy)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(c.label)
+        .accessibilityValue(busy ? "en cours" : "")
     }
 }
 
@@ -729,7 +788,7 @@ struct ParkingCard: View {
         let c = CLLocationCoordinate2D(latitude: pk.lat, longitude: pk.lon)
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .center, spacing: 16) {
-                Image(systemName: "location.north.fill").font(.system(size: 18, weight: .medium)).frame(width: 28)
+                Image(systemName: "location.north.fill").font(.body.weight(.medium)).frame(width: 28)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("EMPLACEMENT").font(.subheadline.weight(.semibold)).tracking(0.9)
                     Text(adresse ?? "Garée ici").font(.caption).foregroundStyle(Color.kSub).lineLimit(1)
@@ -738,7 +797,9 @@ struct ParkingCard: View {
                 Text("il y a \(pk.date, style: .relative)").font(.caption).foregroundStyle(Color.kSub)
             }
             .padding(.horizontal, 4)
-            Map(initialPosition: .region(MKCoordinateRegion(center: c, latitudinalMeters: 350, longitudinalMeters: 350))) {
+            // carte fixe : le défilement de la page n'est pas capturé ; un appui ouvre Plans
+            Map(initialPosition: .region(MKCoordinateRegion(center: c, latitudinalMeters: 350, longitudinalMeters: 350)),
+                interactionModes: []) {
                 Marker("Kona", systemImage: "car.fill", coordinate: c).tint(Color.kRed)
                 UserAnnotation()
             }
@@ -747,13 +808,19 @@ struct ParkingCard: View {
             .frame(height: 170)
             .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color.primary.opacity(0.1)))
+            .contentShape(Rectangle())
+            .onTapGesture { ouvrir(c, aPied: false) }
+            .accessibilityElement()
+            .accessibilityLabel("Carte de l'emplacement")
+            .accessibilityHint("Ouvre Plans")
+            .accessibilityAddTraits(.isButton)
             .overlay(alignment: .bottomTrailing) {
                 Button {
-                    let it = MKMapItem(placemark: MKPlacemark(coordinate: c)); it.name = "Kona"
-                    it.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeWalking])
+                    ouvrir(c, aPied: true)
                 } label: {
                     Label("Y aller", systemImage: "figure.walk").font(.subheadline.weight(.semibold))
-                        .padding(.horizontal, 14).padding(.vertical, 9)
+                        .padding(.horizontal, 16)
+                        .frame(minHeight: 44)
                         .background(.ultraThinMaterial, in: Capsule())
                 }
                 .buttonStyle(PressStyle())
@@ -764,6 +831,11 @@ struct ParkingCard: View {
             let a = await Self.geocode(pk)
             withAnimation(.easeInOut) { adresse = a }
         }
+    }
+
+    private func ouvrir(_ c: CLLocationCoordinate2D, aPied: Bool) {
+        let it = MKMapItem(placemark: MKPlacemark(coordinate: c)); it.name = "Kona"
+        it.openInMaps(launchOptions: aPied ? [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeWalking] : nil)
     }
 
     static func geocode(_ pk: Parking) async -> String? {

@@ -1,8 +1,8 @@
 {"name": "Kona Relay", "identifier": "fr.flo.konarelay.source",
  "apps": [{"name": "Kona", "bundleIdentifier": "fr.flo.konarelay", "developerName": "Flo",
    "localizedDescription": "Relais Bluetooth de la Kona Electric vers Home Assistant.",
-   "iconURL": "https://github.com/flofloow87/kona-relay/releases/download/build-22/AppIcon.png", "tintColor": "#7FE0BF",
-   "versions": [{"version": "3.0.22", "buildVersion": "22", "date": "2026-11-21T09:41:09Z",
-     "downloadURL": "https://github.com/flofloow87/kona-relay/releases/download/build-22/KonaRelay.ipa", "size": 4628076, "minOSVersion": "18.0"}],
+   "iconURL": "https://github.com/flofloow87/kona-relay/releases/download/build-23/AppIcon.png", "tintColor": "#7FE0BF",
+   "versions": [{"version": "3.0.23", "buildVersion": "23", "date": "2026-11-21T12:40:26Z",
+     "downloadURL": "https://github.com/flofloow87/kona-relay/releases/download/build-23/KonaRelay.ipa", "size": 4661781, "minOSVersion": "18.0"}],
    "appPermissions": {"entitlements": [], "privacy": {}}}],
  "news": []}
