@@ -11,6 +11,7 @@ struct SettingsView: View {
     @AppStorage("theme") private var theme = "sombre"
     @AppStorage("accent") private var accent = "turquoise"
     @AppStorage("carColor") private var carColor = "gris"
+    @AppStorage("carPhoto") private var carPhoto = true
     @AppStorage("carName") private var carName = "Kona"
     @EnvironmentObject var r: BLERelay
     @Environment(\.dismiss) private var dismiss
@@ -80,6 +81,9 @@ struct SettingsView: View {
                     Picker("Couleur d'accent", selection: $accent) {
                         Text("Turquoise").tag("turquoise"); Text("Rouge Kona").tag("rouge")
                     }
+                    if KonaPhoto.image != nil {
+                        Toggle("Photo réaliste sur l'accueil", isOn: $carPhoto)
+                    }
                     KonaSide(paint: CarPaint(rawValue: carColor) ?? .gris)
                         .frame(maxWidth: 260)
                         .frame(maxWidth: .infinity)
@@ -94,7 +98,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Thème")
                 } footer: {
-                    Text("La teinte sert à la voiture de l'onglet Voiture, des widgets et de l'activité en direct. Les widgets, l'activité en direct et CarPlay restent en sombre.")
+                    Text("La teinte sert aux widgets, à l'activité en direct et à la voiture de l'onglet Voiture quand la photo est désactivée. Les widgets, l'activité en direct et CarPlay restent en sombre.")
                 }
 
                 Section {

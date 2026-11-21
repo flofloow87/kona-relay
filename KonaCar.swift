@@ -16,6 +16,7 @@ struct KonaCarScene: View {
     var actif = true                // onglet affiché
     @Environment(\.accessibilityReduceMotion) private var reduce
     @Environment(\.scenePhase) private var phase
+    @AppStorage("carPhoto") private var carPhoto = true
     @State private var debut: Date?
     @State private var visible = true
 
@@ -28,11 +29,16 @@ struct KonaCarScene: View {
                                   continu: !reduce && (roule || charging),
                                   jusqua: max(finArrivee, finCommande),
                                   dt: reduce ? 0.25 : (eco ? 1.0 / 12 : 1.0 / 30),
-                                  reflet: !reduce)
+                                  reflet: false)
         TimelineView(horaire) { tl in
             Canvas { ctx, size in
-                CarRender(size: size, now: tl.date, debut: debut, soc: soc, charging: charging, gear: gear,
-                          speed: speed, roule: roule, live: live, paint: paint, done: done, motion: !reduce).draw(ctx)
+                if carPhoto, let img = KonaPhoto.image {
+                    PhotoRender(image: img, size: size, now: tl.date, debut: debut, charging: charging, gear: gear,
+                                speed: speed, roule: roule, live: live, done: done, motion: !reduce).draw(ctx)
+                } else {
+                    CarRender(size: size, now: tl.date, debut: debut, soc: soc, charging: charging, gear: gear,
+                              speed: speed, roule: roule, live: live, paint: paint, done: done, motion: !reduce).draw(ctx)
+                }
             }
         }
         .aspectRatio(2.0, contentMode: .fit)
@@ -240,7 +246,6 @@ private struct CarRender {
         ctx.stroke(Silhouette.shoulder(g), with: .color(.white.opacity(0.22)), lineWidth: max(1, g.m(0.012)))
         feux(ctx, g, allume: allume, halo: !reflet)
 
-        if !reflet { balayage(ctx, g, body: body, tt: tt) }
     }
 
     private func roue(_ ctx: GraphicsContext, _ g: CarGeo, cx: CGFloat, angle: CGFloat) {
@@ -276,25 +281,6 @@ private struct CarRender {
         let rouge = Color(red: 0.95, green: 0.12, blue: 0.15)
         ctx.stroke(Silhouette.tail(g), with: .color(rouge.opacity(allume ? 1 : 0.6)), style: StrokeStyle(lineWidth: g.m(0.03), lineCap: .round))
         ctx.fill(Silhouette.tailLow(g), with: .color(rouge.opacity(allume ? 0.9 : 0.45)))
-    }
-
-    /// Reflet de lumière qui traverse la carrosserie toutes les 7 s
-    private func balayage(_ ctx: GraphicsContext, _ g: CarGeo, body: Path, tt: CGFloat) {
-        guard motion else { return }
-        let ph = tt.truncatingRemainder(dividingBy: 7)
-        let dur: CGFloat = 1.7
-        guard ph < dur else { return }
-        let w = g.m(0.7), sk = g.m(0.5)
-        let x = g.p(-0.8, 0).x + ph / dur * g.m(Dim.L + 1.8)
-        let haut = g.p(0, 1.6).y, bas = g.p(0, 0.25).y
-        var c = ctx
-        c.clip(to: body)
-        let bande = Path { p in
-            p.addLines([CGPoint(x: x, y: haut), CGPoint(x: x + w, y: haut), CGPoint(x: x + w - sk, y: bas), CGPoint(x: x - sk, y: bas)])
-            p.closeSubpath()
-        }
-        c.fill(bande, with: .linearGradient(Gradient(colors: [.white.opacity(0), .white.opacity(0.28), .white.opacity(0)]),
-                                            startPoint: CGPoint(x: x - sk, y: bas), endPoint: CGPoint(x: x + w, y: haut)))
     }
 
     // MARK: Recharge
