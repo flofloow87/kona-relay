@@ -78,6 +78,7 @@ extension BLERelay {
         default:
             let c = KonaCommand(rawValue: ack)
             if c == busy { busy = nil }
+            if ok, let c { done = CmdDone(c: c, date: Date()) }
             st.note("\(c?.label ?? ack) : \(ok ? "OK" : "pas de réponse de la voiture")")
             show(ok ? "\(c?.label ?? ack) ✓" : "\(c?.label ?? ack) : la voiture n'a pas répondu")
         }

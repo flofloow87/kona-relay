@@ -164,7 +164,7 @@ struct EntretienView: View {
             } else {
                 Section {
                     ForEach(s.items) { x in
-                        NavigationLink { EntretienDetail(x: x, edit: $edit) } label: {
+                        NavigationLink { EntretienDetail(x: x, edit: $edit).konaPage() } label: {
                             HStack(spacing: 12) {
                                 if let p = x.photos.first, let img = s.image(p) {
                                     Image(uiImage: img).resizable().scaledToFill().frame(width: 44, height: 44).clipShape(RoundedRectangle(cornerRadius: 8))

@@ -209,7 +209,7 @@ struct RecurringView: View {
                     LabeledContent("Meilleure / pire", value: "\(fr(cs.min())) / \(fr(cs.max())) kWh/100")
                     LabeledContent("Durée moyenne", value: "\(g.trips.map(\.minutes).reduce(0, +) / g.trips.count) min")
                     if let b = best {
-                        NavigationLink { TripDetail(t: b, prix: prix) } label: {
+                        NavigationLink { TripDetail(t: b, prix: prix).konaPage() } label: {
                             Label("Meilleur : \(b.start.formatted(date: .abbreviated, time: .shortened))", systemImage: "trophy.fill").foregroundStyle(Color.kGold)
                         }
                     }
@@ -286,7 +286,7 @@ struct CalendarView: View {
                 let ts = tripsMois.filter { cal.isDate($0.start, inSameDayAs: c) }
                 Section(c.formatted(.dateTime.weekday(.wide).day().month(.wide).locale(Locale(identifier: "fr_FR"))).capitalized) {
                     if ts.isEmpty { Text("Aucun trajet").foregroundStyle(.secondary) }
-                    ForEach(ts) { t in NavigationLink { TripDetail(t: t, prix: prix) } label: { TripRow(t: t, prix: prix) } }
+                    ForEach(ts) { t in NavigationLink { TripDetail(t: t, prix: prix).konaPage() } label: { TripRow(t: t, prix: prix) } }
                 }
             }
         }

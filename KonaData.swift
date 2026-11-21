@@ -61,3 +61,9 @@ enum KonaCommand: String, CaseIterable, Identifiable {
     var icon: String { ["deverrouiller": "lock.open.fill", "verrouiller": "lock.fill", "feux": "headlight.high.beam.fill", "klaxon": "megaphone.fill"][rawValue]! }
     var needsConfirm: Bool { self == .deverrouiller || self == .verrouiller }
 }
+
+/// Commande confirmée par l'ESP32 (anime la voiture de l'écran d'accueil)
+struct CmdDone: Equatable {
+    let c: KonaCommand
+    let date: Date
+}
