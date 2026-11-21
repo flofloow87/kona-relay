@@ -89,7 +89,7 @@ struct KonaWidgetView: View {
                     row("minus.plus.batteryblock.fill", s?.v12.map { String(format: "%.2f V", $0).replacingOccurrences(of: ".", with: ",") } ?? "—",
                         (s?.v12 ?? 13) < 12.2 ? .kRed : .kSub)
                 }
-                KonaSide(paint: .current, charging: s?.charging == true, soc: s?.soc)
+                KonaVisuel(charging: s?.charging == true, soc: s?.soc)
                     .frame(maxWidth: .infinity)
                     .padding(.bottom, 4)
             }
@@ -99,7 +99,7 @@ struct KonaWidgetView: View {
                 autonomie(s, taille: 30)
                 jauge(s)
                 Spacer(minLength: 0)
-                KonaSide(paint: .current, charging: s?.charging == true, soc: s?.soc)
+                KonaVisuel(charging: s?.charging == true, soc: s?.soc)
                     .frame(maxWidth: .infinity)
             }
         }
@@ -182,7 +182,7 @@ struct KonaLockView: View {
                     .font(.subheadline).foregroundStyle(st.charging ? Color.kTeal : .white)
             }
             Spacer(minLength: 0)
-            KonaSide(paint: .current, charging: st.charging, soc: st.soc).frame(width: 128)
+            KonaVisuel(charging: st.charging, soc: st.soc).frame(width: 128)
         }
     }
 }

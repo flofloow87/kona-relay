@@ -45,7 +45,7 @@ targets:
   KonaWidget:
     type: app-extension
     platform: iOS
-    sources: [KonaWidget.swift, Shared.swift, KonaSilhouette.swift]
+    sources: [KonaWidget.swift, Shared.swift, KonaSilhouette.swift, KonaPhotoWidget.png]
     entitlements:
       path: KonaWidget.entitlements
       properties:

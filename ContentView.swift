@@ -57,6 +57,7 @@ struct ContentView: View {
     @AppStorage("theme") private var theme = "sombre"
     @AppStorage("accent") private var accent = "turquoise"
     @AppStorage("carColor") private var carColor = "gris"
+    @AppStorage("carPhoto") private var carPhoto = true
     @StateObject private var meteo = Meteo.shared
     @Environment(\.scenePhase) private var phase
 
@@ -109,8 +110,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $settings) { SettingsView().environmentObject(r).environmentObject(st) }
         .task { await meteo.refresh() }
-        .task { CarPaint.partager(carColor) }
+        .task { CarPaint.partager(carColor); KonaVisuel.partager(carPhoto) }
         .onChange(of: carColor) { _, v in CarPaint.partager(v) }
+        .onChange(of: carPhoto) { _, v in KonaVisuel.partager(v) }
         .onChange(of: phase, initial: true) { _, p in
             if p == .active { r.startHAPolling() } else { r.stopHAPolling(); if p == .background { BLERelay.scheduleHA() } }
         }
@@ -675,27 +677,6 @@ struct Shimmer: View {
         }
         .allowsHitTesting(false)
         .onAppear { withAnimation(.linear(duration: 1.3).repeatForever(autoreverses: false)) { go = true } }
-    }
-}
-
-/// Point de liaison avec onde qui s'étend
-struct PulseDot: View {
-    let color: Color
-    let active: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduce
-    var body: some View {
-        ZStack {
-            if active && !reduce {
-                Circle().stroke(color, lineWidth: 1.5)
-                    .phaseAnimator([false, true]) { content, on in
-                        content.scaleEffect(on ? 2.6 : 1).opacity(on ? 0 : 0.8)
-                    } animation: { on in
-                        on ? .easeOut(duration: 1.6) : .linear(duration: 0.01)
-                    }
-            }
-            Circle().fill(color)
-        }
-        .frame(width: 7, height: 7)
     }
 }
 

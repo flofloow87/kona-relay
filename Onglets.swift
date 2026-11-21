@@ -2,7 +2,8 @@ import SwiftUI
 
 private func euros(_ v: Double) -> String { String(format: "%.2f €", v).replacingOccurrences(of: ".", with: ",") }
 
-private func heures(_ min: Int) -> String { min >= 60 ? "\(min / 60) h \(String(format: "%02d", min % 60))" : "\(min) min" }
+/// Durée lisible : « 45 min » ou « 5 h 00 »
+func heures(_ min: Int) -> String { min >= 60 ? "\(min / 60) h \(String(format: "%02d", min % 60))" : "\(min) min" }
 
 // MARK: - Onglet Recharge
 struct RechargePage: View {
@@ -59,8 +60,10 @@ struct RechargePage: View {
                         MenuLink(icon: "chart.bar", title: "Bilans mensuels", sub: "Kilomètres, coûts et économies") {
                             BilansView().environmentObject(r)
                         }
-                        MenuLink(icon: "chart.line.uptrend.xyaxis", title: "Comparer les bornes", sub: "Puissance selon le niveau de charge") {
-                            BornesView().environmentObject(st)
+                        if st.charges.contains(where: { ($0.samples?.count ?? 0) >= 3 }) {
+                            MenuLink(icon: "chart.line.uptrend.xyaxis", title: "Comparer les bornes", sub: "Puissance selon le niveau de charge") {
+                                BornesView().environmentObject(st)
+                            }
                         }
                     }
                     .modifier(Reveal(on: shown, delay: 0.24))

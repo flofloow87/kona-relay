@@ -341,7 +341,7 @@ struct HomeChargesList: View {
                         Spacer()
                         Text(euros(c.cout)).font(.subheadline.weight(.semibold))
                     }
-                    Text("\(fr(c.soc_debut, 0)) → \(fr(c.soc_fin, 0)) % · \(fr(c.kwh_borne)) kWh · \(c.duree_min ?? 0) min" + (c.kwh_hp == nil ? (c.part_solaire.map { " · \(Int($0)) % solaire" } ?? "") : ""))
+                    Text("\(fr(c.soc_debut, 0)) → \(fr(c.soc_fin, 0)) % · \(fr(c.kwh_borne)) kWh · \(c.duree_min.map(heures) ?? "—")" + (c.kwh_hp == nil ? (c.part_solaire.map { " · \(Int($0)) % solaire" } ?? "") : ""))
                         .font(.caption).foregroundStyle(.secondary)
                     if c.kwh_hp != nil { MixBar(c: c) }
                 }

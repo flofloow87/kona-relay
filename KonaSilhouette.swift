@@ -44,6 +44,33 @@ enum CarPaint: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Visuel de la Kona hors de l'app : photo réaliste (réglage « carPhoto ») ou dessin teinté
+/// Widgets et activité en direct. La photo réduite (KonaPhotoWidget.png) reste légère pour WidgetKit.
+struct KonaVisuel: View {
+    var charging = false
+    var soc: Double?
+
+    static let image: UIImage? = UIImage(named: "KonaPhotoWidget")
+    /// Réglage de l'app, recopié dans le groupe d'apps (photo par défaut)
+    static var photo: Bool { AppGroup.defaults.object(forKey: "carPhoto") as? Bool ?? true }
+
+    var body: some View {
+        if Self.photo, let img = Self.image {
+            Image(uiImage: img).resizable().scaledToFit()
+                .accessibilityLabel("Kona")
+        } else {
+            KonaSide(paint: .current, charging: charging, soc: soc)
+        }
+    }
+
+    /// Recopie le réglage de l'app pour les widgets et l'activité en direct
+    static func partager(_ on: Bool) {
+        guard AppGroup.defaults.object(forKey: "carPhoto") as? Bool != on else { return }
+        AppGroup.defaults.set(on, forKey: "carPhoto")
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+}
+
 // MARK: - Géométrie (mètres → points). x : de l'avant (0) vers l'arrière, y : depuis le sol.
 enum Dim {
     static let L: CGFloat = 4.18          // longueur

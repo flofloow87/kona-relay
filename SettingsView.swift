@@ -12,7 +12,6 @@ struct SettingsView: View {
     @AppStorage("accent") private var accent = "turquoise"
     @AppStorage("carColor") private var carColor = "gris"
     @AppStorage("carPhoto") private var carPhoto = true
-    @AppStorage("carName") private var carName = "Kona"
     @EnvironmentObject var r: BLERelay
     @Environment(\.dismiss) private var dismiss
     @AppStorage("webhook") private var webhook = ""
@@ -55,9 +54,16 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    TextField("Webhook des données", text: $webhook, axis: .vertical)
-                    TextField("Webhook des commandes", text: $cmdWebhook, axis: .vertical)
-                    TextField("Dossier de l'app (…/local/kona_app_…/)", text: $haFolder, axis: .vertical)
+                    // adresses : police à chasse fixe, sans majuscule ni correction automatiques
+                    Group {
+                        TextField("Webhook des données", text: $webhook, axis: .vertical)
+                        TextField("Webhook des commandes", text: $cmdWebhook, axis: .vertical)
+                        TextField("Dossier de l'app (…/local/kona_app_…/)", text: $haFolder, axis: .vertical)
+                    }
+                    .font(.footnote.monospaced())
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
                 } header: {
                     Text("Home Assistant")
                 } footer: {
@@ -82,23 +88,24 @@ struct SettingsView: View {
                         Text("Turquoise").tag("turquoise"); Text("Rouge Kona").tag("rouge")
                     }
                     if KonaPhoto.image != nil {
-                        Toggle("Photo réaliste sur l'accueil", isOn: $carPhoto)
+                        Toggle("Photo réaliste de la Kona", isOn: $carPhoto.animation())
                     }
-                    KonaSide(paint: CarPaint(rawValue: carColor) ?? .gris)
-                        .frame(maxWidth: 260)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
-                        .animation(.easeInOut(duration: 0.4), value: carColor)
-                    Picker("Teinte de la voiture", selection: $carColor) {
-                        ForEach(CarPaint.allCases) { p in Text(p.label).tag(p.rawValue) }
-                    }
-                    LabeledContent("Nom affiché") {
-                        TextField("Kona", text: $carName).multilineTextAlignment(.trailing)
+                    // la teinte ne sert qu'au dessin : réglage visible seulement sans la photo
+                    if !carPhoto || KonaPhoto.image == nil {
+                        KonaSide(paint: CarPaint(rawValue: carColor) ?? .gris)
+                            .frame(maxWidth: 260)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 6)
+                            .animation(.easeInOut(duration: 0.4), value: carColor)
+                        Picker("Teinte du dessin", selection: $carColor) {
+                            ForEach(CarPaint.allCases) { p in Text(p.label).tag(p.rawValue) }
+                        }
                     }
                 } header: {
                     Text("Thème")
                 } footer: {
-                    Text("La teinte sert aux widgets, à l'activité en direct et à la voiture de l'onglet Voiture quand la photo est désactivée. Les widgets, l'activité en direct et CarPlay restent en sombre.")
+                    Text(carPhoto ? "La photo est utilisée dans l'onglet Voiture, les widgets et l'activité en direct. Désactive-la pour revenir au dessin animé et choisir sa teinte. Les widgets, l'activité en direct et CarPlay restent en sombre."
+                         : "La teinte sert au dessin de l'onglet Voiture, des widgets et de l'activité en direct. Les widgets, l'activité en direct et CarPlay restent en sombre.")
                 }
 
                 Section {
@@ -131,10 +138,6 @@ struct SettingsView: View {
                 } footer: {
                     Text("Chaque trajet et recharge est déjà envoyé automatiquement à Home Assistant (inclus dans ses sauvegardes). La restauration ajoute ce qui manque, sans doublon.")
                 }
-                .font(.footnote.monospaced())
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .keyboardType(.URL)
 
                 Section {
                     LabeledContent("kWh maison (trajets)") {
