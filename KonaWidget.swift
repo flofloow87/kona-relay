@@ -34,6 +34,26 @@ struct SocRing: View {
     }
 }
 
+/// Batterie horizontale fine (widgets, écran verrouillé)
+struct MiniBattery: View {
+    let soc: Double?
+    var body: some View {
+        let f = max(0, min(1, (soc ?? 0) / 100))
+        HStack(spacing: 1.5) {
+            GeometryReader { g in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 3.5, style: .continuous).strokeBorder(.white.opacity(0.4), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 2, style: .continuous).fill(Color.soc(soc))
+                        .frame(width: max(2, (g.size.width - 4) * CGFloat(f)))
+                        .padding(2)
+                }
+            }
+            RoundedRectangle(cornerRadius: 1).fill(.white.opacity(0.4)).frame(width: 2, height: 5)
+        }
+        .frame(height: 13)
+    }
+}
+
 struct KonaWidgetView: View {
     @Environment(\.widgetFamily) var family
     let e: KonaEntry
@@ -57,34 +77,68 @@ struct KonaWidgetView: View {
         case .accessoryInline:
             Text("Kona \(pct(s?.soc)) · \(km(s?.range))")
         case .systemMedium:
-            HStack(spacing: 16) {
-                SocRing(soc: s?.soc, width: 10).frame(width: 92, height: 92)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Kona Electric").font(.headline).foregroundStyle(.white)
-                    row("road.lanes", km(s?.range), .kTeal)
-                    row(s?.charging == true ? "bolt.fill" : "gauge.with.dots.needle.33percent",
-                        s?.kw.map { String(format: "%.1f kW", abs($0)).replacingOccurrences(of: ".", with: ",") } ?? "—", .kGold)
-                    row("minus.plus.batteryblock.fill", s?.v12.map { String(format: "%.2f V", $0).replacingOccurrences(of: ".", with: ",") } ?? "—", .kBlue)
-                    Text(s?.date ?? .now, style: .relative).font(.caption2).foregroundStyle(Color.kSub)
+            HStack(alignment: .bottom, spacing: 10) {
+                VStack(alignment: .leading, spacing: 5) {
+                    entete(s)
+                    autonomie(s, taille: 34)
+                    jauge(s)
+                    Spacer(minLength: 0)
+                    Text(ligne(s)).font(.caption.weight(.semibold))
+                        .foregroundStyle(s?.charging == true ? Color.kTeal : Color.kSub)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                    row("minus.plus.batteryblock.fill", s?.v12.map { String(format: "%.2f V", $0).replacingOccurrences(of: ".", with: ",") } ?? "—",
+                        (s?.v12 ?? 13) < 12.2 ? .kRed : .kSub)
                 }
-                Spacer(minLength: 0)
+                KonaSide(paint: .current, charging: s?.charging == true, soc: s?.soc)
+                    .frame(maxWidth: .infinity)
+                    .padding(.bottom, 4)
             }
         default:
             VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .top) {
-                    SocRing(soc: s?.soc, width: 9).frame(width: 64, height: 64)
-                    Spacer()
-                    if s?.charging == true { Image(systemName: "bolt.fill").font(.title3).foregroundStyle(Color.kTeal) }
-                }
+                entete(s)
+                autonomie(s, taille: 30)
+                jauge(s)
                 Spacer(minLength: 0)
-                Text(km(s?.range)).font(.title2.weight(.bold)).foregroundStyle(.white).minimumScaleFactor(0.7).lineLimit(1)
-                Group {
-                    if s?.charging == true, let m = s?.minLeft, let c = s?.cible { Text("\(c) % dans \(m) min") }
-                    else { Text(s?.date ?? .now, style: .relative) }
-                }
-                .font(.caption.weight(.semibold)).foregroundStyle(s?.charging == true ? Color.kTeal : Color.kSub).lineLimit(1).minimumScaleFactor(0.7)
+                KonaSide(paint: .current, charging: s?.charging == true, soc: s?.soc)
+                    .frame(maxWidth: .infinity)
             }
         }
+    }
+
+    private func entete(_ s: WidgetState?) -> some View {
+        HStack(spacing: 4) {
+            Text("KONA").font(.caption2.weight(.semibold)).tracking(1.5).foregroundStyle(Color.kSub)
+            Spacer(minLength: 4)
+            if s?.charging == true {
+                Image(systemName: "bolt.fill").font(.caption).foregroundStyle(Color.kTeal)
+            } else {
+                Text(s?.date ?? .now, style: .relative).font(.caption2).foregroundStyle(Color.kSub)
+                    .lineLimit(1).minimumScaleFactor(0.6).multilineTextAlignment(.trailing)
+            }
+        }
+    }
+
+    private func autonomie(_ s: WidgetState?, taille: CGFloat) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 3) {
+            Text(s?.range.map(String.init) ?? "—").font(.system(size: taille, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white).minimumScaleFactor(0.6).lineLimit(1)
+            Text("km").font(.caption.weight(.medium)).foregroundStyle(Color.kSub)
+        }
+    }
+
+    private func jauge(_ s: WidgetState?) -> some View {
+        HStack(spacing: 6) {
+            MiniBattery(soc: s?.soc).frame(width: 36)
+            Text(pct(s?.soc)).font(.caption.weight(.semibold)).foregroundStyle(Color.soc(s?.soc))
+        }
+    }
+
+    private func ligne(_ s: WidgetState?) -> String {
+        if s?.charging == true {
+            if let m = s?.minLeft, let c = s?.cible { return "\(c) % dans \(m) min" }
+            return "En charge" + (s?.kw.map { String(format: " · %.1f kW", abs($0)).replacingOccurrences(of: ".", with: ",") } ?? "")
+        }
+        return s?.connected == true ? "En route · Bluetooth" : "Garée"
     }
 
     private func row(_ i: String, _ t: String, _ c: Color) -> some View {
@@ -113,16 +167,22 @@ struct KonaLockView: View {
     let st: KonaActivityAttributes.ContentState
     let title: String
     var body: some View {
-        HStack(spacing: 14) {
-            SocRing(soc: st.soc, width: 7).frame(width: 56, height: 56)
+        HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.caption).foregroundStyle(Color.kSub)
-                Text("≈ \(st.range) km").font(.title3.weight(.bold)).foregroundStyle(.white)
+                HStack(spacing: 6) {
+                    Text(title.uppercased()).font(.caption2.weight(.semibold)).tracking(1.2).foregroundStyle(Color.kSub)
+                    Text(st.updated, style: .time).font(.caption2).foregroundStyle(Color.kSub)
+                }
+                Text("≈ \(st.range) km").font(.title2.weight(.semibold)).foregroundStyle(.white)
+                HStack(spacing: 6) {
+                    MiniBattery(soc: st.soc).frame(width: 32)
+                    Text("\(Int(st.soc.rounded())) %").font(.caption.weight(.semibold)).foregroundStyle(Color.soc(st.soc))
+                }
                 Text(st.charging ? (st.minLeft > 0 ? "\(st.cible) % dans ≈ \(st.minLeft) min" : String(format: "En charge · %.1f kW", abs(st.kw))) : "\(st.speed) km/h · \(st.gear)")
                     .font(.subheadline).foregroundStyle(st.charging ? Color.kTeal : .white)
             }
-            Spacer()
-            Text(st.updated, style: .time).font(.caption2).foregroundStyle(Color.kSub)
+            Spacer(minLength: 0)
+            KonaSide(paint: .current, charging: st.charging, soc: st.soc).frame(width: 128)
         }
     }
 }

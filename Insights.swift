@@ -79,7 +79,7 @@ struct BilansView: View {
     @State private var charge = true
 
     var body: some View {
-        List {
+        List { Group {
             if bilans.isEmpty {
                 Text(charge ? "Chargement…" : "Aucun bilan pour l'instant : le premier arrive le 1er du mois.").foregroundStyle(.secondary)
             } else {
@@ -107,7 +107,7 @@ struct BilansView: View {
                     }
                 }
             }
-        }
+        }.konaRows() }
         .navigationTitle("Bilans mensuels")
         .task { await load() }
         .refreshable { await load() }
@@ -133,7 +133,7 @@ struct SOHView: View {
     private static let jour: DateFormatter = { let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; return f }()
 
     var body: some View {
-        List {
+        List { Group {
             Section {
                 if let f, !f.hist.isEmpty {
                     let pts: [(d: Date, v: Double)] = f.hist.compactMap { p in Self.jour.date(from: p.d).map { (d: $0, v: p.soh) } }
@@ -162,7 +162,7 @@ struct SOHView: View {
                     }
                 }
             }
-        }
+        }.konaRows() }
         .navigationTitle("Batterie haute tension")
         .task { await load() }
         .refreshable { await load() }
@@ -195,7 +195,7 @@ struct RecurringView: View {
 
     var body: some View {
         let gs = groupes
-        List {
+        List { Group {
             if gs.isEmpty {
                 Text("Pas encore de trajet répété : il faut au moins deux trajets avec le même départ et la même arrivée (à 500 m près).").foregroundStyle(.secondary)
             }
@@ -215,7 +215,7 @@ struct RecurringView: View {
                     }
                 }
             }
-        }
+        }.konaRows() }
         .navigationTitle("Trajets répétés")
         .task {
             for (i, g) in gs.enumerated() where noms[i] == nil && i < 12 {
@@ -242,7 +242,7 @@ struct CalendarView: View {
         let tripsMois = st.trips.filter { cal.isDate($0.start, equalTo: mois, toGranularity: .month) }
         let kmJour: [Int: Double] = Dictionary(grouping: tripsMois) { cal.component(.day, from: $0.start) }.mapValues { $0.compactMap(\.km).reduce(0, +) }
         let maxKm = max(kmJour.values.max() ?? 1, 1)
-        List {
+        List { Group {
             Section {
                 HStack {
                     Button { mois = cal.date(byAdding: .month, value: -1, to: mois)!; choix = nil } label: { Image(systemName: "chevron.left") }
@@ -289,7 +289,7 @@ struct CalendarView: View {
                     ForEach(ts) { t in NavigationLink { TripDetail(t: t, prix: prix).konaPage() } label: { TripRow(t: t, prix: prix) } }
                 }
             }
-        }
+        }.konaRows() }
         .navigationTitle("Calendrier")
     }
 }
@@ -400,7 +400,7 @@ struct SpeedConsoView: View {
 
     var body: some View {
         let tr = tranches
-        List {
+        List { Group {
             if tr.isEmpty {
                 Text("Pas encore assez de mesures : il faut quelques trajets enregistrés par l'app à différentes vitesses.").foregroundStyle(.secondary)
             } else {
@@ -427,7 +427,7 @@ struct SpeedConsoView: View {
                     }
                 }
             }
-        }
+        }.konaRows() }
         .navigationTitle("Conso et vitesse")
     }
 }
