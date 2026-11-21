@@ -12,6 +12,7 @@ struct RechargePage: View {
     @AppStorage("socCible") private var socCible = 80
     @AppStorage("prixBorne") private var prixBorne = 0.45
     @State private var shown = false
+    @ScaledMetric(relativeTo: .largeTitle) private var taille: CGFloat = 56
 
     var body: some View {
         let d = r.data
@@ -24,7 +25,7 @@ struct RechargePage: View {
                     VStack(spacing: 16) {
                         HStack(alignment: .firstTextBaseline, spacing: 4) {
                             Text(soc.map { "\(Int($0.rounded()))" } ?? "—")
-                                .font(.system(size: 56, weight: .semibold, design: .rounded)).monospacedDigit()
+                                .font(.system(size: min(taille, 96), weight: .semibold, design: .rounded)).monospacedDigit()
                                 .foregroundStyle(Color.soc(soc))
                                 .contentTransition(.numericText(value: soc ?? 0))
                             Text("%").font(.title2.weight(.medium)).foregroundStyle(Color.kSub)
@@ -38,6 +39,13 @@ struct RechargePage: View {
                         ChargeCurveCard(c: c).modifier(Reveal(on: shown, delay: 0.16))
                     } else if let c = st.charges.first {
                         derniere(c).modifier(Reveal(on: shown, delay: 0.16))
+                    } else {
+                        ContentUnavailableView {
+                            Label("Pas encore de recharge sur borne", systemImage: "ev.charger")
+                        } description: {
+                            Text("Les recharges hors de la maison s'enregistrent quand l'iPhone reste relié en Bluetooth pendant la charge. Celles de la maison sont dans Recharges, onglet Maison.")
+                        }
+                        .modifier(Reveal(on: shown, delay: 0.16))
                     }
                     MenuSection(titre: "Historique") {
                         MenuLink(icon: "ev.charger", title: "Recharges",
@@ -138,12 +146,12 @@ struct ChargeBar: View {
                 .overlay(forme.strokeBorder(Color.primary.opacity(0.15)))
             }
             .frame(height: 38)
-            GeometryReader { g in
-                Text("Objectif \(cible) %").font(.caption2.weight(.semibold)).foregroundStyle(Color.kSub)
-                    .fixedSize()
-                    .position(x: min(max(g.size.width * CGFloat(cible) / 100, 50), g.size.width - 50), y: 6)
+            HStack {
+                Text("0 %")
+                Spacer()
+                Text("Objectif \(cible) %")
             }
-            .frame(height: 12)
+            .font(.caption2.weight(.semibold)).foregroundStyle(Color.kSub)
         }
         .animation(.spring(duration: 0.9, bounce: 0.15), value: f)
         .task {
@@ -177,7 +185,16 @@ struct TrajetsPage: View {
                     PageTitle(titre: "Trajets", sous: "\(st.trips.count) trajets enregistrés · \(fr(st.conso)) kWh/100 km")
                         .modifier(Reveal(on: shown, delay: 0))
                     if let t = st.curTrip { enCours(t).modifier(Reveal(on: shown, delay: 0.06)) }
-                    Card { StatStrip(items: items) }.modifier(Reveal(on: shown, delay: 0.1))
+                    if st.trips.isEmpty && st.curTrip == nil {
+                        ContentUnavailableView {
+                            Label("Pas encore de trajet", systemImage: "map")
+                        } description: {
+                            Text("Les trajets s'enregistrent quand l'iPhone est relié en Bluetooth à la Kona pendant que tu roules, hors WiFi maison.")
+                        }
+                        .modifier(Reveal(on: shown, delay: 0.1))
+                    } else {
+                        Card { StatStrip(items: items) }.modifier(Reveal(on: shown, delay: 0.1))
+                    }
                     if let t = st.trips.first { dernier(t).modifier(Reveal(on: shown, delay: 0.16)) }
                     MenuSection(titre: "Analyses") {
                         MenuLink(icon: "list.bullet", title: "Historique", sub: "Tous les trajets, tracé et coût") {

@@ -39,7 +39,9 @@ struct KonaCarScene: View {
         .onAppear { if debut == nil { debut = Date() } }
         .onScrollVisibilityChange(threshold: 0.02) { visible = $0 }
         .accessibilityElement()
-        .accessibilityLabel(charging ? "Kona en charge" : "Kona")
+        .accessibilityLabel("Kona")
+        .accessibilityValue([soc.map { "\(Int($0.rounded())) %" }, charging ? "en charge" : roule ? "en route" : "garée"]
+            .compactMap { $0 }.joined(separator: ", "))
     }
 }
 
