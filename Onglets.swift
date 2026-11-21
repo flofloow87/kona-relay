@@ -168,9 +168,10 @@ struct ChargeBar: View {
         let f = max(0, min(1, (soc ?? 0) / 100))
         let col = Color.soc(soc)
         let forme = RoundedRectangle(cornerRadius: 12, style: .continuous)
-        VStack(spacing: 6) {
+        VStack(spacing: 12) {                                // le repère dépasse de 5 pt sous la barre
             GeometryReader { g in
-                let w = g.size.width, x = w * CGFloat(cible) / 100
+                let w = g.size.width, h = g.size.height, x = w * CGFloat(cible) / 100
+                let d: CGFloat = glisse ? 20 : 14                // diamètre de la poignée
                 ZStack(alignment: .leading) {
                     forme.fill(Color.primary.opacity(0.07))
                     forme.fill(LinearGradient(colors: [col.opacity(0.65), col], startPoint: .leading, endPoint: .trailing))
@@ -178,16 +179,23 @@ struct ChargeBar: View {
                         .clipShape(forme)
                         .frame(width: max(10, w * CGFloat(shown ? f : 0)))
                         .shadow(color: col.opacity(charging ? 0.6 : 0.25), radius: charging ? 10 : 4)
-                    // repère de l'objectif, avec une poignée au-dessus de la barre
-                    Capsule().fill(Color.primary.opacity(0.75))
-                        .frame(width: 2.5, height: g.size.height + 10)
-                        .offset(x: x - 1.25)
-                    Circle().fill(Color.primary)
-                        .frame(width: glisse ? 20 : 14, height: glisse ? 20 : 14)
-                        .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
-                        .offset(x: x - (glisse ? 10 : 7), y: -(g.size.height / 2 + 5))
                 }
+                .frame(width: w, height: h)                      // la barre garde exactement sa hauteur
                 .overlay(forme.strokeBorder(Color.primary.opacity(0.15)))
+                // repère de l'objectif et poignée, posés par-dessus : ils ne changent pas la taille de la barre
+                .overlay(alignment: .topLeading) {
+                    ZStack(alignment: .top) {
+                        Capsule().fill(Color.primary.opacity(0.75))
+                            .frame(width: 2.5, height: h + 10)
+                        Circle().fill(Color.primary)
+                            .frame(width: d, height: d)
+                            .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+                            .offset(y: -d / 2)
+                    }
+                    .frame(width: d)
+                    .offset(x: x - d / 2, y: -5)
+                    .allowsHitTesting(false)
+                }
                 .contentShape(Rectangle().inset(by: -12))
                 .gesture(DragGesture(minimumDistance: 0)
                     .onChanged { v in
