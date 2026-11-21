@@ -114,11 +114,11 @@ struct TripDetail: View {
 struct ChargesView: View {
     @EnvironmentObject var st: Store
     @AppStorage("prixBorne") private var prix = 0.45
-    @State private var lieu = 0
+    @State var lieu = 1          // 1 = maison (par défaut : la plupart des recharges), 0 = bornes
 
     var body: some View {
         List { Group {
-            Picker("Lieu", selection: $lieu) { Text("Bornes").tag(0); Text("Maison").tag(1) }
+            Picker("Lieu", selection: $lieu) { Text("Maison").tag(1); Text("Bornes").tag(0) }
                 .pickerStyle(.segmented)
                 .listRowBackground(Color.clear)
             if lieu == 1 {

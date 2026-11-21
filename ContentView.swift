@@ -250,7 +250,7 @@ struct VoiturePage: View {
                 }
                 .padding(.horizontal, 16).padding(.bottom, 24)
             }
-            .konaScroll(glow: lueur, animated: actif)
+            .konaScroll(glow: lueur)
             .refreshable { await r.fetchHA(); await meteo.refresh(force: true) }
             .task { shown = true }
             .confirmationDialog(confirm.map { "\($0.label) la Kona ?" } ?? "", isPresented: Binding(get: { confirm != nil }, set: { if !$0 { confirm = nil } }), titleVisibility: .visible) {
@@ -442,23 +442,18 @@ struct Card<Content: View>: View {
 }
 
 /// Fond façon Tesla : halo bleu-vert en haut (qui dérive lentement sur l'onglet Voiture), noir en bas
+/// Fond fixe : dégradé et halo en haut, dont seule la couleur change (charge, route)
 struct KonaBackdrop: View {
     static let defaut = Color(red: 0.32, green: 0.58, blue: 0.68)
     var glow = KonaBackdrop.defaut
-    var animated = false
-    @Environment(\.accessibilityReduceMotion) private var reduce
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 20, paused: !animated || reduce)) { tl in
-            let k = animated && !reduce
-                ? sin(tl.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 3600) * 2 * .pi / 16) : 0
-            ZStack {
-                LinearGradient(colors: [.kBg2, .kBg1, .kBg1], startPoint: .top, endPoint: .bottom)
-                RadialGradient(colors: [glow.opacity(Theme.clair ? 0.22 : 0.38), glow.opacity(0)],
-                               center: .top, startRadius: 10, endRadius: 460)
-                    .scaleEffect(1.06 + 0.12 * k, anchor: .top)
-                    .offset(x: 36 * k, y: -40)
-            }
+        ZStack {
+            LinearGradient(colors: [.kBg2, .kBg1, .kBg1], startPoint: .top, endPoint: .bottom)
+            RadialGradient(colors: [glow.opacity(Theme.clair ? 0.22 : 0.38), glow.opacity(0)],
+                           center: .top, startRadius: 10, endRadius: 460)
+                .scaleEffect(1.06, anchor: .top)
+                .offset(y: -40)
         }
         .animation(.easeInOut(duration: 1.5), value: glow)
     }
@@ -472,10 +467,10 @@ extension View {
     }
 
     /// Pages d'onglet : défilement sans barre de navigation, fond Kona
-    func konaScroll(glow: Color = KonaBackdrop.defaut, animated: Bool = false) -> some View {
+    func konaScroll(glow: Color = KonaBackdrop.defaut) -> some View {
         scrollIndicators(.hidden)
             .toolbar(.hidden, for: .navigationBar)
-            .background(KonaBackdrop(glow: glow, animated: animated).ignoresSafeArea())
+            .background(KonaBackdrop(glow: glow).ignoresSafeArea())
     }
 
     /// Lignes de liste translucides sur le fond Kona

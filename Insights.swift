@@ -295,7 +295,7 @@ struct CalendarView: View {
 }
 
 // MARK: - Recharges maison (recharges_maison.json)
-struct HomeCharge: Decodable, Identifiable {
+struct HomeCharge: Codable, Identifiable {
     var debut: String
     var duree_min: Int?
     var kwh_borne: Double?
@@ -309,6 +309,21 @@ struct HomeCharge: Decodable, Identifiable {
     var kwh_zendure: Double?
     var id: String { debut }
     var date: Date? { ISO8601DateFormatter().date(from: debut) ?? { let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return f.date(from: debut) }() }
+
+    private static let cleCache = "cacheRechargesMaison"
+
+    /// Dernière liste reçue de Home Assistant (affichée tout de suite, et hors connexion)
+    static var enCache: [HomeCharge] {
+        UserDefaults.standard.data(forKey: cleCache).flatMap { try? JSONDecoder().decode([HomeCharge].self, from: $0) } ?? []
+    }
+
+    /// Recharges maison de Home Assistant, la plus récente d'abord ; garde la liste en cache
+    static func charger(_ r: BLERelay) async -> [HomeCharge] {
+        guard let l: [HomeCharge] = await r.haJSON("recharges_maison.json") else { return enCache }
+        let triee = l.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+        if let d = try? JSONEncoder().encode(triee) { UserDefaults.standard.set(d, forKey: cleCache) }
+        return triee
+    }
 }
 
 struct HomeChargesList: View {
@@ -341,7 +356,8 @@ struct HomeChargesList: View {
             }
         }
         .task {
-            list = (await r.haJSON("recharges_maison.json") as [HomeCharge]?) ?? []
+            list = HomeCharge.enCache
+            list = await HomeCharge.charger(r)
             charge = false
         }
     }

@@ -12,6 +12,7 @@ struct RechargePage: View {
     @AppStorage("socCible") private var socCible = 80
     @AppStorage("prixBorne") private var prixBorne = 0.45
     @State private var shown = false
+    @State private var maison: [HomeCharge] = HomeCharge.enCache     // recharges à la maison (Home Assistant), la plus récente d'abord
     @ScaledMetric(relativeTo: .largeTitle) private var taille: CGFloat = 56
 
     var body: some View {
@@ -31,33 +32,35 @@ struct RechargePage: View {
                             Text("%").font(.title2.weight(.medium)).foregroundStyle(Color.kSub)
                         }
                         .animation(.snappy, value: soc)
-                        ChargeBar(soc: soc, cible: socCible, charging: charge)
+                        ChargeBar(soc: soc, cible: $socCible, charging: charge)
                         StatStrip(items: stats(d, charge))
                     }
                     .modifier(Reveal(on: shown, delay: 0.08))
                     if charge, let c = st.curCharge, (c.samples?.count ?? 0) >= 2 {
                         ChargeCurveCard(c: c).modifier(Reveal(on: shown, delay: 0.16))
+                    } else if let m = maison.first, (m.date ?? .distantPast) >= (st.charges.first?.start ?? .distantPast) {
+                        derniereMaison(m).modifier(Reveal(on: shown, delay: 0.16))
                     } else if let c = st.charges.first {
                         derniere(c).modifier(Reveal(on: shown, delay: 0.16))
                     } else {
                         ContentUnavailableView {
-                            Label("Pas encore de recharge sur borne", systemImage: "ev.charger")
+                            Label("Pas encore de recharge", systemImage: "ev.charger")
                         } description: {
-                            Text("Les recharges hors de la maison s'enregistrent quand l'iPhone reste relié en Bluetooth pendant la charge. Celles de la maison sont dans Recharges, onglet Maison.")
+                            Text("Les recharges à la maison arrivent de Home Assistant à la fin de chaque recharge. Celles sur borne s'enregistrent quand l'iPhone reste relié en Bluetooth pendant la charge.")
                         }
                         .modifier(Reveal(on: shown, delay: 0.16))
                     }
                     MenuSection(titre: "Historique") {
-                        MenuLink(icon: "ev.charger", title: "Recharges",
-                                 sub: st.curCharge != nil ? "Recharge en cours" : "\(st.charges.count) sur borne · maison",
+                        MenuLink(icon: "house", title: "Recharges",
+                                 sub: st.curCharge != nil ? "Recharge sur borne en cours" : "\(maison.count) à la maison · \(st.charges.count) sur borne",
                                  tint: st.curCharge != nil ? .kTeal : Color.primary.opacity(0.9), actif: st.curCharge != nil) {
-                            ChargesView().environmentObject(st).environmentObject(r)
-                        }
-                        MenuLink(icon: "chart.line.uptrend.xyaxis", title: "Comparer les bornes", sub: "Puissance selon le niveau de charge") {
-                            BornesView().environmentObject(st)
+                            ChargesView(lieu: st.curCharge != nil ? 0 : 1).environmentObject(st).environmentObject(r)
                         }
                         MenuLink(icon: "chart.bar", title: "Bilans mensuels", sub: "Kilomètres, coûts et économies") {
                             BilansView().environmentObject(r)
+                        }
+                        MenuLink(icon: "chart.line.uptrend.xyaxis", title: "Comparer les bornes", sub: "Puissance selon le niveau de charge") {
+                            BornesView().environmentObject(st)
                         }
                     }
                     .modifier(Reveal(on: shown, delay: 0.24))
@@ -65,8 +68,14 @@ struct RechargePage: View {
                 .padding(.horizontal, 16).padding(.bottom, 24)
             }
             .konaScroll(glow: charge ? .kTeal : KonaBackdrop.defaut)
-            .refreshable { await r.fetchHA() }
-            .task { shown = true }
+            .refreshable {
+                await r.fetchHA()
+                maison = await HomeCharge.charger(r)
+            }
+            .task {
+                shown = true
+                maison = await HomeCharge.charger(r)
+            }
         }
     }
 
@@ -87,12 +96,14 @@ struct RechargePage: View {
             return l
         }
         let debut = Calendar.current.dateInterval(of: .month, for: now)?.start ?? now
-        let mois = st.charges.filter { $0.start >= debut }
+        let bornes = st.charges.filter { $0.start >= debut }
+        let maisonMois = maison.filter { ($0.date ?? .distantPast) >= debut }
+        let kwh = bornes.map(\.kwh).reduce(0, +) + maisonMois.compactMap(\.kwh_borne).reduce(0, +)
         return [
             ("\(socCible) %", "Objectif", Color.primary),
             (st.range(100).map { "\($0) km" } ?? "—", "Autonomie à 100 %", Color.primary),
-            ("\(mois.count)", "Sur borne ce mois", Color.primary),
-            ("\(fr(mois.map(\.kwh).reduce(0, +), 0)) kWh", "Énergie ce mois", Color.primary),
+            ("\(bornes.count + maisonMois.count)", "Recharges ce mois", Color.primary),
+            ("\(fr(kwh, 0)) kWh", "Énergie ce mois", Color.primary),
         ]
     }
 
@@ -102,7 +113,7 @@ struct RechargePage: View {
         return NavigationLink { ChargeDetail(c: c, prix: prixBorne).konaPage() } label: {
             Card {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("DERNIÈRE RECHARGE").font(.caption.weight(.semibold)).tracking(1.1).foregroundStyle(Color.kSub)
+                    Text("DERNIÈRE RECHARGE · BORNE").font(.caption.weight(.semibold)).tracking(1.1).foregroundStyle(Color.kSub)
                     HStack(alignment: .firstTextBaseline) {
                         Text("+\(fr(c.kwh)) kWh").font(.title2.weight(.semibold).monospacedDigit())
                         Spacer()
@@ -115,15 +126,40 @@ struct RechargePage: View {
         }
         .buttonStyle(RowStyle())
     }
+
+    /// Dernière recharge à la maison : énergie, niveaux, durée, coût et origine de l'énergie (HC, HP, solaire, batterie)
+    private func derniereMaison(_ c: HomeCharge) -> some View {
+        let socs = c.soc_debut.flatMap { a in c.soc_fin.map { "\(fr(a, 0)) → \(fr($0, 0)) %" } }
+        let infos = [socs, c.duree_min.map { heures($0) }, c.cout.map { euros($0) }].compactMap { $0 }
+        return NavigationLink { ChargesView(lieu: 1).environmentObject(st).environmentObject(r).konaPage() } label: {
+            Card {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("DERNIÈRE RECHARGE · MAISON").font(.caption.weight(.semibold)).tracking(1.1).foregroundStyle(Color.kSub)
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("+\(fr(c.kwh_borne)) kWh").font(.title2.weight(.semibold).monospacedDigit())
+                        Spacer()
+                        Text(c.date?.formatted(date: .abbreviated, time: .shortened) ?? "").font(.caption).foregroundStyle(Color.kSub)
+                    }
+                    Text(infos.joined(separator: " · ")).font(.caption).foregroundStyle(Color.kSub).lineLimit(2)
+                    if c.kwh_hp != nil { MixBar(c: c) }
+                }
+                .foregroundStyle(Color.primary)
+            }
+        }
+        .buttonStyle(RowStyle())
+    }
 }
 
-/// Grande batterie façon Tesla : niveau, repère de l'objectif, reflet qui défile en charge
+/// Grande batterie façon Tesla : niveau, objectif réglable (glisser ou toucher la barre), reflet qui défile en charge
 struct ChargeBar: View {
     let soc: Double?
-    let cible: Int
+    @Binding var cible: Int
     let charging: Bool
     @State private var shown = false
+    @State private var glisse = false
     @Environment(\.accessibilityReduceMotion) private var reduce
+
+    static let plage = 50...100      // comme le réglage « Prévenir à »
 
     var body: some View {
         let f = max(0, min(1, (soc ?? 0) / 100))
@@ -131,7 +167,7 @@ struct ChargeBar: View {
         let forme = RoundedRectangle(cornerRadius: 12, style: .continuous)
         VStack(spacing: 6) {
             GeometryReader { g in
-                let w = g.size.width
+                let w = g.size.width, x = w * CGFloat(cible) / 100
                 ZStack(alignment: .leading) {
                     forme.fill(Color.primary.opacity(0.07))
                     forme.fill(LinearGradient(colors: [col.opacity(0.65), col], startPoint: .leading, endPoint: .trailing))
@@ -139,26 +175,60 @@ struct ChargeBar: View {
                         .clipShape(forme)
                         .frame(width: max(10, w * CGFloat(shown ? f : 0)))
                         .shadow(color: col.opacity(charging ? 0.6 : 0.25), radius: charging ? 10 : 4)
+                    // repère de l'objectif, avec une poignée au-dessus de la barre
                     Capsule().fill(Color.primary.opacity(0.75))
                         .frame(width: 2.5, height: g.size.height + 10)
-                        .offset(x: w * CGFloat(cible) / 100 - 1.25)
+                        .offset(x: x - 1.25)
+                    Circle().fill(Color.primary)
+                        .frame(width: glisse ? 20 : 14, height: glisse ? 20 : 14)
+                        .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+                        .offset(x: x - (glisse ? 10 : 7), y: -(g.size.height / 2 + 5))
                 }
                 .overlay(forme.strokeBorder(Color.primary.opacity(0.15)))
+                .contentShape(Rectangle().inset(by: -12))
+                .gesture(DragGesture(minimumDistance: 0)
+                    .onChanged { v in
+                        // un geste surtout vertical reste pour le défilement de la page
+                        if !glisse && abs(v.translation.height) > abs(v.translation.width) + 4 { return }
+                        glisse = true
+                        regler(v.location.x / max(w, 1))
+                    }
+                    .onEnded { _ in glisse = false })
             }
             .frame(height: 38)
             HStack {
                 Text("0 %")
                 Spacer()
-                Text("Objectif \(cible) %")
+                Label("Objectif \(cible) %", systemImage: "arrow.left.and.right")
+                    .foregroundStyle(glisse ? Color.primary : Color.kSub)
             }
             .font(.caption2.weight(.semibold)).foregroundStyle(Color.kSub)
+            .contentTransition(.numericText(value: Double(cible)))
         }
         .animation(.spring(duration: 0.9, bounce: 0.15), value: f)
+        .animation(.snappy(duration: 0.2), value: glisse)
+        .animation(.snappy(duration: 0.15), value: cible)
+        .sensoryFeedback(.selection, trigger: cible)
         .task {
             withAnimation(reduce ? nil : Animation.spring(duration: 1.3, bounce: 0.12).delay(0.3)) { shown = true }
         }
         .accessibilityElement()
-        .accessibilityLabel("Batterie \(Int(((soc ?? 0)).rounded())) %, objectif \(cible) %")
+        .accessibilityLabel("Batterie \(Int(((soc ?? 0)).rounded())) %, objectif de charge")
+        .accessibilityValue("\(cible) %")
+        .accessibilityHint("Balaie vers le haut ou le bas pour changer l'objectif")
+        .accessibilityAdjustableAction { d in
+            switch d {
+            case .increment: cible = min(Self.plage.upperBound, cible + 5)
+            case .decrement: cible = max(Self.plage.lowerBound, cible - 5)
+            @unknown default: break
+            }
+        }
+    }
+
+    /// Position (0 à 1) sur la barre → objectif arrondi à 5 %, entre 50 et 100 %
+    private func regler(_ p: CGFloat) {
+        let n = min(Self.plage.upperBound, max(Self.plage.lowerBound, Int((p * 20).rounded()) * 5))
+        if n != cible { cible = n }
     }
 }
 
