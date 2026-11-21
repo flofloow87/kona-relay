@@ -52,6 +52,7 @@ struct ContentView: View {
     @State private var vus: Set<Onglet> = [.voiture]
     @State private var settings = false
     @State private var racine: [Onglet: Int] = [:]       // réappui sur l'onglet actif : page recréée (retour en haut)
+    @State private var barre: CGFloat = 76               // hauteur mesurée de la barre d'onglets
     @Environment(\.accessibilityReduceMotion) private var reduce
     @AppStorage("theme") private var theme = "sombre"
     @AppStorage("accent") private var accent = "turquoise"
@@ -74,26 +75,30 @@ struct ContentView: View {
                     }
                 }
             }
+            // Barre flottante posée par-dessus les pages. La marge du bas est réservée dans chaque zone qui défile
+            // (y compris les pages ouvertes depuis un onglet) : safeAreaInset ne traverse pas toujours NavigationStack.
+            .contentMargins(.bottom, barre + 12, for: .scrollContent)
             .overlay(alignment: .bottom) {
-                if let t = r.toast {
-                    Text(t).font(.subheadline.weight(.semibold))
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 18).padding(.vertical, 12)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.12)))
-                        .padding(.horizontal, 16).padding(.bottom, 12)
-                        .transition(.move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.9)))
-                }
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                KonaTabBar(sel: sel, badges: badges(tl.date)) { o in
-                    if o == sel {
-                        // deuxième appui : retour à la première page de l'onglet, en haut
-                        withAnimation(.snappy(duration: 0.3)) { racine[o, default: 0] += 1 }
-                    } else {
-                        vus.insert(o)
-                        withAnimation(.snappy(duration: 0.3)) { sel = o }
+                VStack(spacing: 12) {
+                    if let t = r.toast {
+                        Text(t).font(.subheadline.weight(.semibold))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 18).padding(.vertical, 12)
+                            .background(.ultraThinMaterial, in: Capsule())
+                            .overlay(Capsule().strokeBorder(Color.primary.opacity(0.12)))
+                            .padding(.horizontal, 16)
+                            .transition(.move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.9)))
                     }
+                    KonaTabBar(sel: sel, badges: badges(tl.date)) { o in
+                        if o == sel {
+                            // deuxième appui : retour à la première page de l'onglet, en haut
+                            withAnimation(.snappy(duration: 0.3)) { racine[o, default: 0] += 1 }
+                        } else {
+                            vus.insert(o)
+                            withAnimation(.snappy(duration: 0.3)) { sel = o }
+                        }
+                    }
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { barre = $0 }
                 }
             }
         }
