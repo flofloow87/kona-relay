@@ -70,7 +70,7 @@ struct RechargePage: View {
                 }
                 .padding(.horizontal, 16).padding(.bottom, 24)
             }
-            .konaScroll(glow: charge ? .kTeal : KonaBackdrop.defaut)
+            .konaScroll()
             .refreshable {
                 await r.fetchHA()
                 maison = await HomeCharge.charger(r)
@@ -287,7 +287,7 @@ struct TrajetsPage: View {
                 }
                 .padding(.horizontal, 16).padding(.bottom, 24)
             }
-            .konaScroll(glow: st.curTrip != nil ? .kBlue : KonaBackdrop.defaut)
+            .konaScroll()
             .task { shown = true }
         }
     }
@@ -417,7 +417,7 @@ struct SantePage: View {
                 }
                 .padding(.horizontal, 16).padding(.bottom, 24)
             }
-            .konaScroll(glow: bas ? .kRed : KonaBackdrop.defaut)
+            .konaScroll()
             .refreshable { await r.fetchHA() }
             .task { shown = true }
         }

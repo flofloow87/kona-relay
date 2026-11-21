@@ -67,10 +67,11 @@ struct ContentView: View {
                 ForEach(Onglet.allCases) { o in
                     // chaque onglet garde sa navigation ; créé à la première visite
                     if vus.contains(o) {
+                        // fondu court du contenu seul, sur le fond commun (plus de fonds qui se croisent ni de zoom)
                         page(o, now: tl.date)
                             .id("\(o.rawValue)-\(racine[o, default: 0])")
                             .opacity(sel == o ? 1 : 0)
-                            .scaleEffect(sel == o || reduce ? 1 : 0.985)
+                            .animation(reduce ? nil : .easeInOut(duration: 0.15), value: sel)
                             .allowsHitTesting(sel == o)
                             .accessibilityHidden(sel != o)
                     }
@@ -103,7 +104,8 @@ struct ContentView: View {
                 }
             }
         }
-        .background(KonaBackdrop().ignoresSafeArea())
+        // un seul fond pour tous les onglets ; sa lueur suit l'onglet affiché
+        .background(KonaBackdrop(glow: lueur(sel, now: Date())).ignoresSafeArea())
         .animation(.spring(duration: 0.4, bounce: 0.3), value: r.toast)
         .onChange(of: r.toast) { _, t in
             if let t { AccessibilityNotification.Announcement(t).post() }
@@ -128,6 +130,17 @@ struct ContentView: View {
         case .trajets: TrajetsPage()
         case .sante: SantePage()
         case .plus: PlusPage { settings = true }
+        }
+    }
+
+    /// Lueur du fond selon l'onglet : vert en charge, bleu en route ou trajet en cours, rouge si 12 V faible
+    private func lueur(_ o: Onglet, now: Date) -> Color {
+        switch o {
+        case .voiture: return r.enCharge(now) ? .kTeal : r.roule ? .kBlue : KonaBackdrop.defaut
+        case .recharge: return r.enCharge(now) ? .kTeal : KonaBackdrop.defaut
+        case .trajets: return st.curTrip != nil ? .kBlue : KonaBackdrop.defaut
+        case .sante: return (r.data?.v12d ?? r.data?.v12 ?? 13) < 12.2 ? .kRed : KonaBackdrop.defaut
+        case .plus: return KonaBackdrop.defaut
         }
     }
 
@@ -261,7 +274,7 @@ struct VoiturePage: View {
             .scrollBounceBehavior(.basedOnSize)
             // containerSize : zone visible, déjà sans barre d'état ni barre d'onglets (marges de contenu)
             .onScrollGeometryChange(for: CGFloat.self) { $0.containerSize.height } action: { _, h in visible = h }
-            .konaScroll(glow: lueur)
+            .konaScroll()
             .refreshable { await r.fetchHA(); await meteo.refresh(force: true) }
             .task { shown = true }
             .confirmationDialog(confirm.map { "\($0.label) la Kona ?" } ?? "", isPresented: Binding(get: { confirm != nil }, set: { if !$0 { confirm = nil } }), titleVisibility: .visible) {
@@ -269,13 +282,6 @@ struct VoiturePage: View {
                 Button("Annuler", role: .cancel) {}
             }
         }
-    }
-
-    /// Halo du fond : vert en charge, bleu en roulant, bleu-vert sinon
-    private var lueur: Color {
-        if r.enCharge(now) { return .kTeal }
-        if r.roule { return .kBlue }
-        return KonaBackdrop.defaut
     }
 
     // MARK: Charge et autonomie, état, lecture
@@ -499,11 +505,11 @@ extension View {
             .background(KonaBackdrop().ignoresSafeArea())
     }
 
-    /// Pages d'onglet : défilement sans barre de navigation, fond Kona
-    func konaScroll(glow: Color = KonaBackdrop.defaut) -> some View {
+    /// Pages d'onglet : défilement sans barre de navigation, transparentes sur le fond commun de l'app
+    /// (un fond par onglet faisait scintiller les changements d'onglet, deux fonds se croisant en fondu)
+    func konaScroll() -> some View {
         scrollIndicators(.hidden)
             .toolbar(.hidden, for: .navigationBar)
-            .background(KonaBackdrop(glow: glow).ignoresSafeArea())
     }
 
     /// Lignes de liste translucides sur le fond Kona
