@@ -50,7 +50,7 @@ struct KonaVisuel: View {
     var charging = false
     var soc: Double?
 
-    static let image: UIImage? = UIImage(named: "KonaPhotoWidget")
+    static let image: UIImage? = UIImage(named: "KonaPhotoWidget")?.preparingForDisplay()
     /// Réglage de l'app, recopié dans le groupe d'apps (photo par défaut)
     static var photo: Bool { AppGroup.defaults.object(forKey: "carPhoto") as? Bool ?? true }
 

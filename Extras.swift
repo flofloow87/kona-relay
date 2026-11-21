@@ -305,7 +305,7 @@ struct MaKonaView: View {
     @State private var soh: Double?
 
     private func date(_ s: String?) -> String {
-        guard let s, let d = ISO8601DateFormatter().date(from: s) ?? { let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return f.date(from: s) }() else { return "—" }
+        guard let s, let d = DateISO.lire(s) else { return "—" }
         return d.formatted(date: .abbreviated, time: .omitted)
     }
 

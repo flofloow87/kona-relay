@@ -25,10 +25,12 @@ struct KonaCarScene: View {
     var body: some View {
         let finArrivee = (debut ?? Date()).addingTimeInterval(1.4)
         let finCommande = done.map { $0.date.addingTimeInterval(2.7) } ?? .distantPast
-        let horaire = CarSchedule(actif: actif && visible && phase == .active,
+        let vivant = actif && visible && phase == .active
+        // 30 images/s en roulant (roues, route), 20 en recharge (câble, halo) : assez fluide et plus léger
+        let horaire = CarSchedule(actif: vivant,
                                   continu: !reduce && (roule || charging),
                                   jusqua: max(finArrivee, finCommande),
-                                  dt: reduce ? 0.25 : (eco ? 1.0 / 12 : 1.0 / 30),
+                                  dt: reduce ? 0.25 : (eco ? 1.0 / 12 : (roule ? 1.0 / 30 : 1.0 / 20)),
                                   reflet: false)
         TimelineView(horaire) { tl in
             Canvas { ctx, size in
@@ -41,6 +43,9 @@ struct KonaCarScene: View {
                 }
             }
         }
+        // Nouvelle horloge à chaque reprise (retour dans l'app, dans l'onglet, fin d'une alerte) : sans ça,
+        // une animation interrompue (arrivée, commande) restait figée sur l'image où elle s'était arrêtée.
+        .id(vivant)
         .aspectRatio(2.0, contentMode: .fit)
         .onAppear { if debut == nil { debut = Date() } }
         .onScrollVisibilityChange(threshold: 0.02) { visible = $0 }

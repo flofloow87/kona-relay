@@ -5,7 +5,25 @@ import UIKit
 /// Pour changer de photo : remplacer KonaPhoto.png par une autre image détourée (PNG transparent),
 /// puis ajuster si besoin les repères `P` ci-dessous (fractions de l'image, 0,0 = coin haut gauche).
 enum KonaPhoto {
-    static let image: UIImage? = UIImage(named: "KonaPhoto")
+    /// Décodée une fois pour toutes : sinon le PNG était redécompressé à chaque image de l'animation
+    static let image: UIImage? = UIImage(named: "KonaPhoto")?.preparingForDisplay()
+
+    /// Reflet au sol préparé une fois : photo retournée, estompée vers le bas (évite deux calques par image)
+    static let reflet: UIImage? = image.map { img in
+        let f = UIGraphicsImageRendererFormat.default(); f.scale = img.scale; f.opaque = false
+        return UIGraphicsImageRenderer(size: img.size, format: f).image { r in
+            let c = r.cgContext
+            c.saveGState()
+            c.translateBy(x: 0, y: img.size.height); c.scaleBy(x: 1, y: -1)
+            img.draw(in: CGRect(origin: .zero, size: img.size))
+            c.restoreGState()
+            c.setBlendMode(.destinationIn)
+            let fondu = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                   colors: [UIColor(white: 1, alpha: 0.2).cgColor, UIColor(white: 1, alpha: 0).cgColor] as CFArray,
+                                   locations: [0, 1])!
+            c.drawLinearGradient(fondu, start: .zero, end: CGPoint(x: 0, y: img.size.height * 0.3), options: [.drawsAfterEndLocation])
+        }
+    }
 
     /// Repères sur la photo (x, y en fraction de la largeur / hauteur de l'image)
     fileprivate enum P {
@@ -16,7 +34,7 @@ enum KonaPhoto {
         static let klaxon = CGPoint(x: 1.0, y: 0.6)
         static let clignotants = [CGPoint(x: 0.605, y: 0.59), CGPoint(x: 0.38, y: 0.28),
                                   CGPoint(x: 0.04, y: 0.30), CGPoint(x: 0.962, y: 0.43)]
-        static let roues = [CGPoint(x: 0.085, y: 0.94), CGPoint(x: 0.545, y: 0.995), CGPoint(x: 0.92, y: 0.89)]
+        static let roues = [CGPoint(x: 0.075, y: 0.885), CGPoint(x: 0.545, y: 0.99), CGPoint(x: 0.92, y: 0.885)]   // bas des pneus
         /// Jantes visibles, vues en ellipse (perspective) : centre, demi-axes (fraction de la largeur / hauteur), inclinaison
         static let jantes = [Jante(c: CGPoint(x: 0.0614, y: 0.6985), rx: 0.0346, ry: 0.1292, incl: 5),
                              Jante(c: CGPoint(x: 0.5333, y: 0.7772), rx: 0.0545, ry: 0.1590, incl: 6)]
@@ -75,7 +93,7 @@ struct PhotoRender {
         c.opacity = Double(min(1, e * 2.5))
         let lueur: Color = charging ? .kTeal : (roule ? .kBlue : .white)
         sol(c, g, couleur: lueur, k: charging ? 1 + 0.08 * sin(tt * 2.2) : 1, fort: charging || roule)
-        reflet(c, g, photo, angle: angle)
+        reflet(c, g)
         if roule { route(c, g, tt: tt) }
         ombre(c, g)
         if faisceauxActifs { faisceaux(c, g) }        // derrière la voiture : ne recouvre pas la carrosserie
@@ -108,31 +126,25 @@ struct PhotoRender {
                                                       center: .zero, startRadius: 0, endRadius: rr))
     }
 
-    /// Reflet de la voiture sur un sol brillant, effacé rapidement
-    private func reflet(_ ctx: GraphicsContext, _ g: Geo, _ photo: GraphicsContext.ResolvedImage, angle: CGFloat) {
-        ctx.drawLayer { l in
-            l.drawLayer { m in
-                m.translateBy(x: 0, y: g.gy * 2)
-                m.scaleBy(x: 1, y: -1)
-                voiture(m, g, photo, angle: angle)
-            }
-            l.blendMode = .destinationIn
-            l.fill(Path(CGRect(x: 0, y: g.gy, width: size.width, height: g.r.height * 0.4)),
-                   with: .linearGradient(Gradient(colors: [.white.opacity(0.2), .white.opacity(0)]),
-                                         startPoint: CGPoint(x: 0, y: g.gy), endPoint: CGPoint(x: 0, y: g.gy + g.r.height * 0.3)))
-        }
+    /// Reflet de la voiture sur un sol brillant (image préparée une fois)
+    private func reflet(_ ctx: GraphicsContext, _ g: Geo) {
+        guard let r = KonaPhoto.reflet else { return }
+        ctx.draw(Image(uiImage: r), in: CGRect(x: g.r.minX, y: g.gy, width: g.r.width, height: g.r.height))
     }
 
+    /// Ombre douce sous la voiture et contact des roues : dégradés radiaux étirés (un flou coûtait cher à chaque image)
     private func ombre(_ ctx: GraphicsContext, _ g: Geo) {
-        var l = ctx
-        l.addFilter(.blur(radius: g.m(0.022)))
-        l.fill(Path(ellipseIn: CGRect(x: g.r.minX + g.m(0.02), y: g.p(0, 0.90).y, width: g.m(0.96), height: g.r.height * 0.11)),
-               with: .color(.black.opacity(0.55)))
-        for w in P.roues {
-            let c = g.p(w)
-            l.fill(Path(ellipseIn: CGRect(x: c.x - g.m(0.055), y: c.y - g.m(0.012), width: g.m(0.11), height: g.m(0.024))),
-                   with: .color(.black.opacity(0.85)))
+        func tache(_ centre: CGPoint, _ rx: CGFloat, _ ry: CGFloat, _ o: Double) {
+            var l = ctx
+            l.translateBy(x: centre.x, y: centre.y)
+            l.scaleBy(x: 1, y: ry / rx)
+            l.fill(rond(.zero, rx), with: .radialGradient(Gradient(stops: [.init(color: .black.opacity(o), location: 0),
+                                                                          .init(color: .black.opacity(o * 0.7), location: 0.55),
+                                                                          .init(color: .black.opacity(0), location: 1)]),
+                                                          center: .zero, startRadius: 0, endRadius: rx))
         }
+        tache(g.p(0.5, 0.93), g.m(0.5), g.r.height * 0.08, 0.5)
+        for w in P.roues { tache(g.p(w), g.m(0.065), g.m(0.014), 0.7) }
     }
 
     /// Marquage au sol qui défile sous la voiture en roulant
@@ -180,13 +192,14 @@ struct PhotoRender {
     private func feuxDeJour(_ ctx: GraphicsContext, _ g: Geo) {
         var c = ctx
         c.blendMode = .plusLighter
-        c.addFilter(.blur(radius: g.m(0.006)))
         var p = Path()
         p.move(to: g.p(P.drl.a))
         p.addLine(to: g.p(P.drl.b))
-        c.stroke(p, with: .color(.white.opacity(0.7)), style: StrokeStyle(lineWidth: g.m(0.008), lineCap: .round))
+        c.stroke(p, with: .color(.white.opacity(0.25)), style: StrokeStyle(lineWidth: g.m(0.02), lineCap: .round))
+        c.stroke(p, with: .color(.white.opacity(0.7)), style: StrokeStyle(lineWidth: g.m(0.007), lineCap: .round))
         let f = g.p(P.phareLoin)
-        c.fill(rond(f, g.m(0.012)), with: .color(.white.opacity(0.6)))
+        c.fill(rond(f, g.m(0.02)), with: .radialGradient(Gradient(colors: [.white.opacity(0.7), .white.opacity(0)]),
+                                                        center: f, startRadius: 0, endRadius: g.m(0.02)))
     }
 
     // MARK: Recharge
@@ -211,10 +224,9 @@ struct PhotoRender {
         let port = g.p(P.prise)
         var e = ctx
         e.blendMode = .plusLighter
-        var h = e
-        h.addFilter(.blur(radius: g.m(0.01)))
         let pulse = motion ? 0.55 + 0.3 * sin(tt * 3) : 0.7
-        h.fill(rond(port, g.m(0.018)), with: .color(Color.kTeal.opacity(Double(pulse))))
+        e.fill(rond(port, g.m(0.03)), with: .radialGradient(Gradient(colors: [Color.kTeal.opacity(Double(pulse)), Color.kTeal.opacity(0)]),
+                                                           center: port, startRadius: 0, endRadius: g.m(0.03)))
         if motion {
             let f = (tt * 0.7).truncatingRemainder(dividingBy: 1)
             e.stroke(rond(port, g.m(0.015 + 0.07 * f)), with: .color(Color.kTeal.opacity(Double((1 - f) * 0.8))), lineWidth: 1.5)
@@ -264,10 +276,11 @@ struct PhotoRender {
         guard faisceauxActifs else { return }
         var c = ctx
         c.blendMode = .plusLighter
-        var h = c
-        h.addFilter(.blur(radius: g.m(0.012)))
         for pt in [g.p(P.projecteur), g.p(P.phareLoin), g.p(P.drl.a), g.p(P.drl.b)] {
-            h.fill(rond(pt, g.m(0.022)), with: .color(.white))
+            c.fill(rond(pt, g.m(0.035)), with: .radialGradient(Gradient(stops: [.init(color: .white, location: 0),
+                                                                               .init(color: .white.opacity(0.8), location: 0.35),
+                                                                               .init(color: .white.opacity(0), location: 1)]),
+                                                              center: pt, startRadius: 0, endRadius: g.m(0.035)))
         }
     }
 

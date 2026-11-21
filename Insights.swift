@@ -118,7 +118,8 @@ struct BilansView: View {
         bilans = (d ?? [:]).values.sorted { $0.mois < $1.mois }
         charge = false
     }
-    private func date(_ m: String) -> Date? { let f = DateFormatter(); f.dateFormat = "yyyy-MM"; return f.date(from: m) }
+    private static let mois: DateFormatter = { let f = DateFormatter(); f.dateFormat = "yyyy-MM"; return f }()
+    private func date(_ m: String) -> Date? { Self.mois.date(from: m) }
     private func court(_ m: String) -> String { date(m)?.formatted(.dateTime.month(.abbreviated).locale(Locale(identifier: "fr_FR"))) ?? m }
     private func long(_ m: String) -> String { date(m)?.formatted(.dateTime.month(.wide).year().locale(Locale(identifier: "fr_FR"))).capitalized ?? m }
 }
@@ -294,6 +295,16 @@ struct CalendarView: View {
     }
 }
 
+// MARK: - Lecture des dates ISO 8601 de Home Assistant
+/// Formateurs créés une seule fois : en créer un à chaque date coûte cher (listes de recharges, tris, statistiques).
+enum DateISO {
+    private static let simple = ISO8601DateFormatter()
+    private static let fraction: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return f
+    }()
+    static func lire(_ s: String) -> Date? { simple.date(from: s) ?? fraction.date(from: s) }
+}
+
 // MARK: - Recharges maison (recharges_maison.json)
 struct HomeCharge: Codable, Identifiable {
     var debut: String
@@ -308,19 +319,45 @@ struct HomeCharge: Codable, Identifiable {
     var kwh_solaire: Double?
     var kwh_zendure: Double?
     var id: String { debut }
-    var date: Date? { ISO8601DateFormatter().date(from: debut) ?? { let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return f.date(from: debut) }() }
+    /// Date de début, lue une seule fois au décodage (relire la chaîne à chaque affichage ralentissait l'app)
+    private(set) var date: Date?
+
+    private enum CodingKeys: String, CodingKey {
+        case debut, duree_min, kwh_borne, cout, soc_debut, soc_fin, part_solaire, kwh_hp, kwh_hc, kwh_solaire, kwh_zendure
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        debut = try c.decode(String.self, forKey: .debut)
+        duree_min = try c.decodeIfPresent(Int.self, forKey: .duree_min)
+        kwh_borne = try c.decodeIfPresent(Double.self, forKey: .kwh_borne)
+        cout = try c.decodeIfPresent(Double.self, forKey: .cout)
+        soc_debut = try c.decodeIfPresent(Double.self, forKey: .soc_debut)
+        soc_fin = try c.decodeIfPresent(Double.self, forKey: .soc_fin)
+        part_solaire = try c.decodeIfPresent(Double.self, forKey: .part_solaire)
+        kwh_hp = try c.decodeIfPresent(Double.self, forKey: .kwh_hp)
+        kwh_hc = try c.decodeIfPresent(Double.self, forKey: .kwh_hc)
+        kwh_solaire = try c.decodeIfPresent(Double.self, forKey: .kwh_solaire)
+        kwh_zendure = try c.decodeIfPresent(Double.self, forKey: .kwh_zendure)
+        date = DateISO.lire(debut)
+    }
 
     private static let cleCache = "cacheRechargesMaison"
+    private static var memoire: [HomeCharge]?
 
-    /// Dernière liste reçue de Home Assistant (affichée tout de suite, et hors connexion)
+    /// Dernière liste reçue de Home Assistant (affichée tout de suite, et hors connexion) ; décodée une seule fois
     static var enCache: [HomeCharge] {
-        UserDefaults.standard.data(forKey: cleCache).flatMap { try? JSONDecoder().decode([HomeCharge].self, from: $0) } ?? []
+        if let m = memoire { return m }
+        let l = UserDefaults.standard.data(forKey: cleCache).flatMap { try? JSONDecoder().decode([HomeCharge].self, from: $0) } ?? []
+        memoire = l
+        return l
     }
 
     /// Recharges maison de Home Assistant, la plus récente d'abord ; garde la liste en cache
     static func charger(_ r: BLERelay) async -> [HomeCharge] {
         guard let l: [HomeCharge] = await r.haJSON("recharges_maison.json") else { return enCache }
         let triee = l.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+        memoire = triee
         if let d = try? JSONEncoder().encode(triee) { UserDefaults.standard.set(d, forKey: cleCache) }
         return triee
     }

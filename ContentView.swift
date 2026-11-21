@@ -813,7 +813,8 @@ struct ParkingCard: View {
             // la carte n'est créée qu'à sa taille définitive, et recréée si cette taille change.
             Color.primary.opacity(0.05)
                 .frame(minHeight: 120, idealHeight: 120, maxHeight: .infinity)
-                .onGeometryChange(for: CGSize.self) { $0.size } action: { taille = $0 }
+                // arrondi à 10 points : la carte n'est recréée que si sa taille change vraiment
+                .onGeometryChange(for: CGSize.self) { CGSize(width: ($0.size.width / 10).rounded() * 10, height: ($0.size.height / 10).rounded() * 10) } action: { taille = $0 }
                 .overlay {
                     if taille.width > 0 && taille.height >= 60 {
                         Map(initialPosition: .region(MKCoordinateRegion(center: c, latitudinalMeters: 350, longitudinalMeters: 350)),
