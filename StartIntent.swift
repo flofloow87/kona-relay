@@ -8,8 +8,11 @@ struct StartRelayIntent: LiveActivityIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        BLERelay.shared.kick()
-        Live.start("Trajet", BLERelay.shared.liveState())
+        let r = BLERelay.shared
+        r.kick()
+        // CarPlay qui se connecte = début d'un départ : surveille tout de suite le portail et le garage
+        if r.depart.map({ Date().timeIntervalSince($0) > 1800 }) ?? true { r.surveillerPortes() }
+        Live.start("Trajet", r.liveState())
         try? await Task.sleep(nanoseconds: 8_000_000_000)   // laisse le temps au BLE de se connecter
         return .result()
     }

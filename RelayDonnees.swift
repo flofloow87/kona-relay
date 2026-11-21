@@ -22,7 +22,8 @@ extension BLERelay {
         }
         if Live.current != nil {
             if quick || Date().timeIntervalSince(lastLive) > (eco ? 60 : 15) { lastLive = Date(); Live.update(liveState(k)) }
-            if !mv && !k.charging && st.curTrip == nil && st.curCharge == nil { Live.end() }
+            // pas de fin pendant un départ : l'activité (CarPlay) affiche le portail et le garage
+            if !mv && !k.charging && st.curTrip == nil && st.curCharge == nil && !departEnCours { Live.end() }
         } else if (mv || k.charging) && UIApplication.shared.applicationState == .active {
             Live.start(k.charging ? "Recharge" : "Trajet", liveState(k))
         }
@@ -50,39 +51,52 @@ extension BLERelay {
                      portail: portesVisibles?.p ?? "", garage: portesVisibles?.g ?? "")
     }
 
+    /// Durée d'affichage du portail et du garage après le début du départ
+    static let fenetrePortes: TimeInterval = 720
+
+    var departEnCours: Bool { depart.map { Date().timeIntervalSince($0) < Self.fenetrePortes } ?? false }
+
     var portesVisibles: (p: String, g: String)? {
-        guard let d = depart, Date().timeIntervalSince(d) < 600 else { return nil }
+        guard departEnCours else { return nil }
         return portes
     }
 
-    /// Départ : pendant 10 min, lit le portail et la porte de garage dans Home Assistant (toutes les 30 s).
-    /// Affiché seulement si l'un des deux a bougé dans les 20 min avant le départ (donc départ de la maison).
+    /// Départ (CarPlay qui se connecte, ou voiture qui roule) : pendant 12 min, lit le portail et la porte de garage
+    /// dans Home Assistant toutes les 20 s. Affiché dès que l'un des deux a bougé entre 20 min avant le départ
+    /// et 5 min après (on monte souvent en voiture avant d'ouvrir le garage) : c'est un départ de la maison.
     func surveillerPortes() {
         depart = Date(); portes = nil
         let d0 = depart!
         Task { @MainActor in
             let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             let date = { (s: String?) in s.flatMap { f.date(from: $0) ?? ISO8601DateFormatter().date(from: $0) } }
-            var maison: Bool?
-            while self.depart == d0, Date().timeIntervalSince(d0) < 600 {
+            var maison = false, alerte = false
+            while self.depart == d0, Date().timeIntervalSince(d0) < Self.fenetrePortes {
                 if let e: HAEtat = await self.haJSON("etat.json"), let p = e.portail, let g = e.garage {
-                    if maison == nil {
-                        let t = [date(e.portailT), date(e.garageT)].compactMap { $0 }.max()
-                        maison = t.map { d0.timeIntervalSince($0) < 1200 } ?? false
-                        if maison == true { self.st.note("Départ de la maison : portail \(p), garage \(g)") }
+                    let bouge = [date(e.portailT), date(e.garageT)].compactMap { $0 }.max()    // dernier mouvement
+                    if !maison {
+                        if let t = bouge, t > d0.addingTimeInterval(-1200), t < d0.addingTimeInterval(300) {
+                            maison = true
+                            self.st.note("Départ de la maison : portail \(p), garage \(g)")
+                        } else if Date().timeIntervalSince(d0) > 300 {
+                            return                      // rien n'a bougé : pas un départ de la maison
+                        }
                     }
-                    if maison == false { return }
-                    let n = (p: p, g: g)
-                    if self.portes?.p != n.p || self.portes?.g != n.g {
-                        self.portes = n
-                        if Live.current != nil { self.lastLive = Date(); Live.update(self.liveState()) }
-                        if n.p == "open" || n.g == "open", Date().timeIntervalSince(d0) > 120 {
+                    if maison {
+                        let n = (p: p, g: g)
+                        if self.portes?.p != n.p || self.portes?.g != n.g {
+                            self.portes = n
+                            if Live.current != nil { self.lastLive = Date(); Live.update(self.liveState()) }
+                        }
+                        // encore ouvert 3 min après son dernier mouvement : prévenir une fois
+                        if !alerte, n.p == "open" || n.g == "open", let t = bouge, Date().timeIntervalSince(t) > 180 {
+                            alerte = true
                             self.notify(n.g == "open" ? "La porte de garage est restée ouverte" : "Le portail est resté ouvert",
                                         title: "⚠️ Maison", id: "portes")
                         }
                     }
                 }
-                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                try? await Task.sleep(nanoseconds: 20_000_000_000)
             }
             if self.depart == d0, Live.current != nil { self.lastLive = Date(); Live.update(self.liveState()) }   // retire l'affichage
         }
