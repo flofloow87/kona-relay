@@ -12,7 +12,7 @@ struct TripsView: View {
             if let t = st.curTrip { Section("En cours") { TripRow(t: t, prix: prix) } }
             Section {
                 ForEach(st.trips) { t in
-                    NavigationLink { TripDetail(t: t, prix: prix) } label: { TripRow(t: t, prix: prix) }
+                    NavigationLink { TripDetail(t: t, prix: prix).konaPage() } label: { TripRow(t: t, prix: prix) }
                 }
                 .onDelete { st.trips.remove(atOffsets: $0); st.save() }
             } header: {
@@ -124,10 +124,10 @@ struct ChargesView: View {
             if lieu == 1 {
                 HomeChargesList()
             } else {
-                if let c = st.curCharge { Section("En cours") { NavigationLink { ChargeDetail(c: c, prix: prix) } label: { ChargeRow(c: c, prix: prix) } } }
+                if let c = st.curCharge { Section("En cours") { NavigationLink { ChargeDetail(c: c, prix: prix).konaPage() } label: { ChargeRow(c: c, prix: prix) } } }
                 Section {
                     ForEach(st.charges) { c in
-                        NavigationLink { ChargeDetail(c: c, prix: prix) } label: { ChargeRow(c: c, prix: prix) }
+                        NavigationLink { ChargeDetail(c: c, prix: prix).konaPage() } label: { ChargeRow(c: c, prix: prix) }
                     }
                     .onDelete { st.charges.remove(atOffsets: $0); st.save() }
                 } header: {

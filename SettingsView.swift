@@ -10,6 +10,8 @@ private func version(_ d: Data) -> String {
 struct SettingsView: View {
     @AppStorage("theme") private var theme = "sombre"
     @AppStorage("accent") private var accent = "turquoise"
+    @AppStorage("carColor") private var carColor = "gris"
+    @AppStorage("carName") private var carName = "Kona"
     @EnvironmentObject var r: BLERelay
     @Environment(\.dismiss) private var dismiss
     @AppStorage("webhook") private var webhook = ""
@@ -78,15 +80,21 @@ struct SettingsView: View {
                     Picker("Couleur d'accent", selection: $accent) {
                         Text("Turquoise").tag("turquoise"); Text("Rouge Kona").tag("rouge")
                     }
+                    Picker("Teinte de la voiture", selection: $carColor) {
+                        ForEach(CarPaint.allCases) { p in Text(p.label).tag(p.rawValue) }
+                    }
+                    LabeledContent("Nom affiché") {
+                        TextField("Kona", text: $carName).multilineTextAlignment(.trailing)
+                    }
                 } header: {
                     Text("Thème")
                 } footer: {
-                    Text("Les widgets, l'activité en direct et CarPlay restent en sombre.")
+                    Text("La teinte sert à la voiture dessinée de l'écran d'accueil. Les widgets, l'activité en direct et CarPlay restent en sombre.")
                 }
 
                 Section {
-                    NavigationLink { HomeEditor() } label: { Label("Cartes de l'écran d'accueil", systemImage: "rectangle.3.group") }
-                    NavigationLink { EspNetworksView().environmentObject(r) } label: { Label("Réseaux de l'ESP32", systemImage: "wifi.router") }
+                    NavigationLink { HomeEditor().konaPage() } label: { Label("Cartes de l'écran d'accueil", systemImage: "rectangle.3.group") }
+                    NavigationLink { EspNetworksView().environmentObject(r).konaPage() } label: { Label("Réseaux de l'ESP32", systemImage: "wifi.router") }
                     if r.pendingCount > 0 {
                         LabeledContent("Sauvegardes en attente", value: "\(r.pendingCount)")
                     }
@@ -165,6 +173,7 @@ struct SettingsView: View {
                     LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")
                 }
             }
+            .konaPage()
             .navigationTitle("Réglages")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("OK") { dismiss() } } }

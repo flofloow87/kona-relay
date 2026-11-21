@@ -26,6 +26,7 @@ final class BLERelay: NSObject, ObservableObject, CBCentralManagerDelegate, CBPe
     @Published var data: KonaData?
     @Published var lastSent: Date?
     @Published var busy: KonaCommand?
+    @Published var done: CmdDone?                 // dernière commande confirmée par l'ESP32
     @Published var toast: String?
     @Published var hasGPS = false
     @Published var tripSync: Date?                // dernier trajet synchronisé par Bluetooth
