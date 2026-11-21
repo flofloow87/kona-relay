@@ -121,7 +121,7 @@ struct ContentView: View {
 
     @ViewBuilder private func page(_ o: Onglet, now: Date) -> some View {
         switch o {
-        case .voiture: VoiturePage(now: now, actif: sel == .voiture) { settings = true }
+        case .voiture: VoiturePage(now: now, actif: sel == .voiture)
         case .recharge: RechargePage(now: now)
         case .trajets: TrajetsPage()
         case .sante: SantePage()
@@ -225,11 +225,10 @@ struct VoiturePage: View {
     @StateObject private var meteo = Meteo.shared
     let now: Date
     let actif: Bool
-    let ouvrirReglages: () -> Void
     @AppStorage("carColor") private var carColor = "gris"
-    @AppStorage("carName") private var carName = "Kona"
     @State private var confirm: KonaCommand?
     @State private var shown = false
+    @State private var visible: CGFloat = 0          // hauteur visible de la page (sans barre d'état ni barre d'onglets)
     @ScaledMetric(relativeTo: .largeTitle) private var tailleAuto: CGFloat = 48
     @Environment(\.dynamicTypeSize) private var dts
 
@@ -237,19 +236,27 @@ struct VoiturePage: View {
         let charge = r.enCharge(now)
         NavigationStack {
             ScrollView {
-                VStack(spacing: 24) {
-                    header.modifier(Reveal(on: shown, delay: 0))
-                    hero.modifier(Reveal(on: shown, delay: 0.08))
+                // Tout tient sur un écran : la carte prend la place libre, la voiture rétrécit si besoin.
+                // Si ça ne suffit pas (très grande police, courbe de charge en plus), la page défile.
+                PleinePage(hauteur: max(0, visible - 16), espace: dts.isAccessibilitySize ? 20 : 14) {
+                    heroHaut.modifier(Reveal(on: shown, delay: 0))
+                    voiture.modifier(Reveal(on: shown, delay: 0.06))
+                        .layoutValue(key: PleinePage.Role.self, value: .voiture(min: 150))
+                    heroStats(r.data, r.data?.soc ?? r.data?.socBms).modifier(Reveal(on: shown, delay: 0.1))
                     actions.modifier(Reveal(on: shown, delay: 0.16))
                     if charge, let c = st.curCharge, (c.samples?.count ?? 0) >= 2 {
                         ChargeCurveCard(c: c).modifier(Reveal(on: shown, delay: 0.24))
                     }
                     if let pk = st.parking, !r.roule {
                         ParkingCard(pk: pk).modifier(Reveal(on: shown, delay: 0.24))
+                            .layoutValue(key: PleinePage.Role.self, value: .carte(min: dts.isAccessibilitySize ? 170 : 120))
                     }
                 }
-                .padding(.horizontal, 16).padding(.bottom, 24)
+                .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 8)
             }
+            .scrollBounceBehavior(.basedOnSize)
+            // containerSize : zone visible, déjà sans barre d'état ni barre d'onglets (marges de contenu)
+            .onScrollGeometryChange(for: CGFloat.self) { $0.containerSize.height } action: { _, h in visible = h }
             .konaScroll(glow: lueur)
             .refreshable { await r.fetchHA(); await meteo.refresh(force: true) }
             .task { shown = true }
@@ -267,54 +274,8 @@ struct VoiturePage: View {
         return KonaBackdrop.defaut
     }
 
-    // MARK: En-tête (réglages, nom, liaison)
-    private var header: some View {
-        HStack {
-            Button(action: ouvrirReglages) {
-                Image(systemName: "gearshape.fill").font(.title3).foregroundStyle(Color.primary.opacity(0.85))
-                    .frame(minWidth: 44, minHeight: 44)
-            }
-            .buttonStyle(PressStyle())
-            .accessibilityLabel("Réglages")
-            Spacer()
-            VStack(spacing: 6) {
-                Text(carName.isEmpty ? "Kona" : carName)
-                    .font(.title2.weight(.semibold))
-                    .foregroundStyle(Theme.rouge ? Color.kKona : Color.primary)
-                linkPill
-            }
-            Spacer()
-            Group {
-                if r.eco {
-                    Image(systemName: "leaf.fill").foregroundStyle(Color.kGold).symbolEffect(.pulse)
-                } else {
-                    Color.clear
-                }
-            }
-            .frame(minWidth: 44, minHeight: 44)
-            .accessibilityLabel(r.eco ? "Mode économie" : "")
-            .accessibilityHidden(!r.eco)
-        }
-        .padding(.top, 4)
-    }
-
-    private var linkPill: some View {
-        let viaHA = r.haSync.map { now.timeIntervalSince($0) < 180 } == true
-        let (txt, col): (String, Color) = r.connected ? ("Bluetooth", .kBlue)
-            : viaHA ? ("Maison", .kTeal)
-            : r.status.hasPrefix("Recherche") ? ("Recherche", .kSub) : ("En attente", .kSub)
-        return HStack(spacing: 6) {
-            PulseDot(color: col, active: r.connected || viaHA)
-            Text(txt.uppercased()).font(.caption2.weight(.semibold)).tracking(1.2)
-        }
-        .foregroundStyle(col)
-        .padding(.horizontal, 10).padding(.vertical, 5)
-        .background(col.opacity(0.12), in: Capsule())
-        .animation(.easeInOut(duration: 0.3), value: txt)
-    }
-
-    // MARK: Voiture, charge et autonomie
-    private var hero: some View {
+    // MARK: Charge et autonomie, état, lecture
+    private var heroHaut: some View {
         let d = r.data
         let soc = d?.soc ?? d?.socBms
         let charge = r.enCharge(now)
@@ -336,18 +297,15 @@ struct VoiturePage: View {
                 .contentTransition(.interpolate)
                 .animation(.snappy, value: etat)
             lecture(d).font(.footnote).foregroundStyle(Color.kSub)
-            KonaCarScene(soc: soc, charging: charge, gear: d?.gear, speed: d?.speed, live: r.connected,
-                         paint: CarPaint(rawValue: carColor) ?? .gris, done: r.done, eco: r.eco, actif: actif)
-                .padding(.horizontal, -16)
-                .padding(.top, 4)
-                .visualEffect { content, proxy in
-                    let y = proxy.frame(in: .scrollView).minY
-                    return content
-                        .offset(y: y < 0 ? -y * 0.35 : 0)
-                        .opacity(y < 0 ? Double(max(0.15, 1 + y / 380)) : 1)
-                }
-            heroStats(d, soc)
         }
+    }
+
+    // MARK: Voiture animée
+    private var voiture: some View {
+        let d = r.data
+        return KonaCarScene(soc: d?.soc ?? d?.socBms, charging: r.enCharge(now), gear: d?.gear, speed: d?.speed, live: r.connected,
+                            paint: CarPaint(rawValue: carColor) ?? .gris, done: r.done, eco: r.eco, actif: actif)
+            .padding(.horizontal, -16)
     }
 
     private func statut(_ d: KonaData?) -> (String, Color) {
@@ -366,10 +324,12 @@ struct VoiturePage: View {
         return ("Garée", Color.primary.opacity(0.85))
     }
 
+    /// Âge et source de la lecture (remplace la pastille de liaison de l'ancien en-tête), feuille en mode économie
     private func lecture(_ d: KonaData?) -> Text {
-        guard let d else { return Text("Aucune lecture pour l'instant") }
+        let eco = r.eco ? Text(Image(systemName: "leaf.fill")).foregroundColor(.kGold) + Text(" ") : Text("")
+        guard let d else { return eco + Text("Aucune lecture pour l'instant") }
         let src = r.connected ? "Bluetooth" : d.src == "ha" ? "via Home Assistant" : "dernière connue"
-        return Text("Lecture il y a \(d.date, style: .relative) · \(src)")
+        return eco + Text("Lecture il y a \(d.date, style: .relative) · \(src)")
     }
 
     private func heroStats(_ d: KonaData?, _ soc: Double?) -> some View {
@@ -420,6 +380,45 @@ struct VoiturePage: View {
 
     private func color(_ c: KonaCommand) -> Color {
         switch c { case .deverrouiller: .kGold; case .verrouiller: .kTeal; case .feux: .kBlue; case .klaxon: .kRed }
+    }
+}
+
+// MARK: - Empilement plein écran de l'onglet Voiture
+/// Empile les blocs comme un VStack centré, en visant exactement `hauteur` :
+/// la place libre va à la carte, et s'il en manque la voiture rétrécit (jusqu'à son minimum).
+/// Si tout ne tient toujours pas, la pile dépasse et la page défile.
+struct PleinePage: Layout {
+    var hauteur: CGFloat
+    var espace: CGFloat
+
+    enum Souple: Equatable { case voiture(min: CGFloat), carte(min: CGFloat) }
+    struct Role: LayoutValueKey { static let defaultValue: Souple? = nil }
+
+    private func hauteurs(_ largeur: CGFloat?, _ vues: Subviews) -> [CGFloat] {
+        var h = vues.map { $0.sizeThatFits(ProposedViewSize(width: largeur, height: nil)).height }
+        guard hauteur > 0 else { return h }          // hauteur visible pas encore mesurée
+        let total = h.reduce(0, +) + espace * CGFloat(max(vues.count - 1, 0))
+        if total < hauteur, let i = vues.firstIndex(where: { if case .carte = $0[Role.self] { true } else { false } }) {
+            h[i] += hauteur - total
+        } else if total > hauteur, let i = vues.firstIndex(where: { if case .voiture = $0[Role.self] { true } else { false } }),
+                  case let .voiture(mini)? = vues[i][Role.self] {
+            h[i] = max(mini, h[i] - (total - hauteur))
+        }
+        return h
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let h = hauteurs(proposal.width, subviews)
+        return CGSize(width: proposal.width ?? 0, height: h.reduce(0, +) + espace * CGFloat(max(subviews.count - 1, 0)))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let h = hauteurs(bounds.width, subviews)
+        var y = bounds.minY
+        for (i, v) in subviews.enumerated() {
+            v.place(at: CGPoint(x: bounds.midX, y: y), anchor: .top, proposal: ProposedViewSize(width: bounds.width, height: h[i]))
+            y += h[i] + espace
+        }
     }
 }
 
@@ -783,6 +782,7 @@ struct ChargeCurveCard: View {
 struct ParkingCard: View {
     let pk: Parking
     @State private var adresse: String?
+    @State private var taille: CGSize = .zero         // taille de la carte
 
     var body: some View {
         let c = CLLocationCoordinate2D(latitude: pk.lat, longitude: pk.lon)
@@ -798,14 +798,22 @@ struct ParkingCard: View {
             }
             .padding(.horizontal, 4)
             // carte fixe : le défilement de la page n'est pas capturé ; un appui ouvre Plans
-            Map(initialPosition: .region(MKCoordinateRegion(center: c, latitudinalMeters: 350, longitudinalMeters: 350)),
-                interactionModes: []) {
-                Marker("Kona", systemImage: "car.fill", coordinate: c).tint(Color.kRed)
-                UserAnnotation()
-            }
-            .mapStyle(.standard(emphasis: .muted))
-            .id(pk.date)
-            .frame(height: 170)
+            // La hauteur de la carte suit la place libre de l'onglet Voiture. MapKit garde le zoom calculé à la création :
+            // la carte n'est créée qu'à sa taille définitive, et recréée si cette taille change.
+            Color.primary.opacity(0.05)
+                .frame(minHeight: 120, idealHeight: 120, maxHeight: .infinity)
+                .onGeometryChange(for: CGSize.self) { $0.size } action: { taille = $0 }
+                .overlay {
+                    if taille.width > 0 && taille.height >= 60 {
+                        Map(initialPosition: .region(MKCoordinateRegion(center: c, latitudinalMeters: 350, longitudinalMeters: 350)),
+                            interactionModes: []) {
+                            Marker("Kona", systemImage: "car.fill", coordinate: c).tint(Color.kRed)
+                            UserAnnotation()
+                        }
+                        .mapStyle(.standard(emphasis: .muted))
+                        .id("\(pk.date.timeIntervalSince1970)-\(Int(taille.width))x\(Int(taille.height))")
+                    }
+                }
             .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color.primary.opacity(0.1)))
             .contentShape(Rectangle())
