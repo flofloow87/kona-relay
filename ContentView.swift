@@ -260,7 +260,14 @@ struct VoiturePage: View {
                     voiture.modifier(Reveal(on: shown, delay: 0.06))
                         .layoutValue(key: PleinePage.Role.self, value: .voiture(min: 150))
                     heroStats(r.data, r.data?.soc ?? r.data?.socBms).modifier(Reveal(on: shown, delay: 0.1))
-                    actions.modifier(Reveal(on: shown, delay: 0.16))
+                    // en roulant : le trajet en cours à la place des commandes (le tracé prend la place libre)
+                    if r.roule, let t = st.curTrip {
+                        TrajetEnCours(t: t, odo: r.data?.odo, soc: r.data?.soc ?? r.data?.socBms)
+                            .modifier(Reveal(on: shown, delay: 0.16))
+                            .layoutValue(key: PleinePage.Role.self, value: .carte(min: dts.isAccessibilitySize ? 320 : 230))
+                    } else {
+                        actions.modifier(Reveal(on: shown, delay: 0.16))
+                    }
                     if charge, let c = st.curCharge, (c.samples?.count ?? 0) >= 2 {
                         ChargeCurveCard(c: c).modifier(Reveal(on: shown, delay: 0.24))
                     }
@@ -420,6 +427,80 @@ struct VoiturePage: View {
 
     private func color(_ c: KonaCommand) -> Color {
         switch c { case .deverrouiller: .kGold; case .verrouiller: .kTeal; case .feux: .kBlue; case .klaxon: .kRed }
+    }
+}
+
+// MARK: - Trajet en cours (onglet Voiture, en roulant)
+/// Durée en direct, distance, énergie, consommation et vitesse moyennes, puis le tracé qui suit la voiture
+struct TrajetEnCours: View {
+    let t: Trip
+    let odo: Int?
+    let soc: Double?
+
+    var body: some View {
+        let km = odo.flatMap { o in t.odoStart.map { Double(max(0, o - $0)) } } ?? t.km ?? 0
+        let h = max(Date().timeIntervalSince(t.start) / 3600, 1.0 / 60)
+        let conso = km >= 1 && t.kwh > 0 ? t.kwh / km * 100 : nil
+        let utilise = t.socStart.flatMap { a in soc.map { max(0, a - $0) } }
+        VStack(spacing: 12) {
+            Card {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Label("TRAJET EN COURS", systemImage: "location.fill")
+                            .font(.caption.weight(.semibold)).tracking(1.1).foregroundStyle(Color.kBlue)
+                            .symbolEffect(.pulse)
+                        Spacer()
+                        // durée qui défile, depuis le départ
+                        Text(t.start, style: .timer).font(.subheadline.weight(.semibold).monospacedDigit())
+                    }
+                    StatStrip(items: [
+                        ("\(fr(km, km < 10 ? 1 : 0)) km", "Distance", Color.primary),
+                        ("\(fr(t.kwh)) kWh", utilise.map { "Consommés · −\(fr($0, 0)) %" } ?? "Consommés", Color.primary),
+                        (conso.map { fr($0) } ?? "—", "kWh/100 km", Color.primary),
+                        ("\(Int((km / h).rounded())) km/h", "Moyenne", Color.primary),
+                    ])
+                }
+            }
+            TraceEnCours(pts: t.pts)
+        }
+        .accessibilityElement(children: .contain)
+    }
+}
+
+/// Tracé du trajet sur une carte qui suit la voiture (non interactive : le défilement de la page reste libre)
+struct TraceEnCours: View {
+    let pts: [GeoPt]
+    @State private var taille: CGSize = .zero
+
+    /// Au plus 300 points : la carte est redessinée à chaque nouvelle position
+    private var coords: [CLLocationCoordinate2D] {
+        let pas = max(1, pts.count / 300)
+        var c = stride(from: 0, to: pts.count, by: pas).map { CLLocationCoordinate2D(latitude: pts[$0].lat, longitude: pts[$0].lon) }
+        if let l = pts.last, pts.count > 1, (pts.count - 1) % pas != 0 { c.append(CLLocationCoordinate2D(latitude: l.lat, longitude: l.lon)) }
+        return c
+    }
+
+    var body: some View {
+        let cs = coords
+        Color.primary.opacity(0.05)
+            .frame(minHeight: 120, idealHeight: 120, maxHeight: .infinity)
+            .onGeometryChange(for: CGSize.self) { CGSize(width: ($0.size.width / 10).rounded() * 10, height: ($0.size.height / 10).rounded() * 10) } action: { taille = $0 }
+            .overlay {
+                // créée à sa taille définitive (comme la carte de l'emplacement), puis suit la position
+                if taille.width > 0 && taille.height >= 60 {
+                    Map(initialPosition: .userLocation(followsHeading: false, fallback: .automatic), interactionModes: []) {
+                        if cs.count > 1 { MapPolyline(coordinates: cs).stroke(Color.kBlue, lineWidth: 5) }
+                        if let d = cs.first { Marker("Départ", systemImage: "flag.fill", coordinate: d).tint(.green) }
+                        UserAnnotation()
+                    }
+                    .mapStyle(.standard(emphasis: .muted))
+                    .id("\(Int(taille.width))x\(Int(taille.height))")
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color.primary.opacity(0.1)))
+            .accessibilityElement()
+            .accessibilityLabel("Tracé du trajet en cours")
     }
 }
 
