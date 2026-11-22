@@ -452,16 +452,12 @@ struct RechargeMaison: View {
         let d = r.data, m = r.maison
         let charge = r.enCharge(now) || m?.borne == "charing"
         let mode = r.modeRecharge
-        let soc = d?.soc ?? d?.socBms
         var stats: [(String, String, Color)] = []
         if let w = m?.w, w > 50 { stats.append(("\(fr(w / 1000)) kW", "Borne", Color.kTeal)) }
         else { stats.append((d?.kw.map { "\(fr(abs($0))) kW" } ?? "—", "Puissance", charge ? Color.kTeal : Color.primary)) }
         stats.append((m?.kwh.map { "+\(fr($0)) kWh" } ?? "—", "Cette recharge", Color.primary))
-        if let eta = r.chargeETA(d) {
-            stats.append((now.addingTimeInterval(Double(eta.min) * 60).formatted(date: .omitted, time: .shortened), "\(eta.cible) % atteints", Color.primary))
-        } else {
-            stats.append((soc.map { "\(Int($0.rounded())) %" } ?? "—", "Batterie", Color.soc(soc)))
-        }
+        // l'heure d'arrivée à l'objectif est déjà sous la voiture : ici, le réglage de la borne
+        if let a = m?.a { stats.append(("\(Int(a.rounded())) A", "Réglage borne", Color.primary)) }
         return Card {
             VStack(alignment: .leading, spacing: 12) {
                 Label(charge ? "RECHARGE À LA MAISON" : "BRANCHÉE À LA MAISON", systemImage: "house.fill")
