@@ -14,6 +14,19 @@ struct HAEtat: Decodable {
     var soc: Double?; var socBms: Double?; var kw: Double?; var volts: Double?; var v12: Double?
     var tMin: Int?; var tMax: Int?; var odo: Int?; var gear: String?; var charging: Bool?
     var portail: String?; var portailT: String?; var garage: String?; var garageT: String?
+    var recharge: HARecharge?             // recharge à la maison (borne, mode), si Node-RED l'écrit
+}
+
+/// Recharge à la maison lue dans etat.json : mode choisi, état et mesures de la borne, heures creuses
+struct HARecharge: Decodable, Equatable {
+    var mode: String?          // "solaire", "pleine" ou "hc"
+    var borne: String?         // sensor.etat : no_connet, connect, charing, finish, error
+    var w: Double?             // puissance tirée par la borne (W)
+    var kwh: Double?           // énergie de la séance (kWh)
+    var a: Double?             // ampérage réglé
+    var hcActif: Bool?
+    var hcDebut: String?       // prochain début des heures creuses (ISO 8601)
+    var branchee: Bool { ["connect", "charing", "error", "finish"].contains(borne ?? "") }
 }
 
 final class BLERelay: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeripheralDelegate, CLLocationManagerDelegate {
@@ -36,6 +49,8 @@ final class BLERelay: NSObject, ObservableObject, CBCentralManagerDelegate, CBPe
     var depart: Date?                     // début du trajet (portail/garage affichés 10 min)
     var portes: (p: String, g: String)?
     @Published var haSync: Date?                  // dernière lecture réussie dans Home Assistant
+    @Published var maison: HARecharge?            // recharge à la maison (etat.json)
+    @Published var modeDemande: (mode: String, date: Date)?   // mode choisi dans l'app, en attente de Home Assistant
     var haTimer: Timer?
     @Published var espNets: (m: String, p: [String], url: Bool)?
     var netQueue: [String] = []

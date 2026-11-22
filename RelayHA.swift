@@ -22,6 +22,7 @@ extension BLERelay {
         let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let d = e.lecture.flatMap { f.date(from: $0) ?? ISO8601DateFormatter().date(from: $0) } ?? Date()
         haSync = Date()
+        if maison != e.recharge { maison = e.recharge }
         if let cur = data, cur.src != "ha", cur.date >= d { return }          // lecture Bluetooth plus récente
         var k = KonaData()
         k.soc = e.soc; k.socBms = e.socBms; k.kw = e.kw; k.volts = e.volts; k.v12d = e.v12

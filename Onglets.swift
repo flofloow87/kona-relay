@@ -37,6 +37,9 @@ struct RechargePage: View {
                         StatStrip(items: stats(d, charge))
                     }
                     .modifier(Reveal(on: shown, delay: 0.08))
+                    if RechargeMaison.visible(r, now: now) {
+                        RechargeMaison(now: now).modifier(Reveal(on: shown, delay: 0.12))
+                    }
                     if charge, let c = st.curCharge, (c.samples?.count ?? 0) >= 2 {
                         ChargeCurveCard(c: c).modifier(Reveal(on: shown, delay: 0.16))
                     } else if let m = maison.first, (m.date ?? .distantPast) >= (st.charges.first?.start ?? .distantPast) {

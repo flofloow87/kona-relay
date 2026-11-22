@@ -47,6 +47,22 @@ extension BLERelay {
         }
     }
 
+    // MARK: Recharge à la maison : mode de la borne (Node-RED fait la régulation)
+    /// Mode affiché : celui choisi dans l'app pendant 2 min (le temps que Home Assistant l'applique), sinon celui de etat.json
+    var modeRecharge: ModeRecharge? {
+        if let d = modeDemande, Date().timeIntervalSince(d.date) < 120 { return ModeRecharge(rawValue: d.mode) }
+        return maison?.mode.flatMap(ModeRecharge.init)
+    }
+
+    func choisirMode(_ m: ModeRecharge) {
+        modeDemande = (m.rawValue, Date())
+        st.note("Recharge maison : mode \(m.label)")
+        postCommand(["mode_charge": m.rawValue]) { ok in
+            self.show(ok ? "Mode \(m.label) demandé à Home Assistant" : "Mode \(m.label) : Home Assistant injoignable")
+            if !ok { self.modeDemande = nil }
+        }
+    }
+
     func applyCadence(main: Int, extra: Int) {
         ud.set(main, forKey: "cfgMain"); ud.set(extra, forKey: "cfgExtra")
         st.note("Cadences : \(main) s / \(extra) s")
@@ -150,4 +166,12 @@ extension BLERelay {
 
     var lastLocation: CLLocation? { loc }
 
+}
+
+/// Modes de recharge à la maison, comme les boutons de la notification de branchement de Node-RED
+enum ModeRecharge: String, CaseIterable, Identifiable {
+    case solaire, pleine, hc
+    var id: String { rawValue }
+    var label: String { switch self { case .solaire: "Solaire"; case .pleine: "32 A"; case .hc: "Heures creuses" } }
+    var icone: String { switch self { case .solaire: "sun.max.fill"; case .pleine: "bolt.fill"; case .hc: "moon.fill" } }
 }
