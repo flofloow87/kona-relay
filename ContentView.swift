@@ -260,9 +260,11 @@ struct VoiturePage: View {
                     voiture.modifier(Reveal(on: shown, delay: 0.06))
                         .layoutValue(key: PleinePage.Role.self, value: .voiture(min: 150))
                     heroStats(r.data, r.data?.soc ?? r.data?.socBms).modifier(Reveal(on: shown, delay: 0.1))
-                    // recharge à la maison : la recharge et le choix du mode à la place des commandes
-                    if RechargeMaison.visible(r, now: now) {
-                        RechargeMaison(now: now).modifier(Reveal(on: shown, delay: 0.16))
+                    // recharge à la maison : la recharge et le choix du mode, puis les commandes
+                    let rechargeMaison = RechargeMaison.visible(r, now: now)
+                    if rechargeMaison {
+                        RechargeMaison(now: now).modifier(Reveal(on: shown, delay: 0.14))
+                        actions.modifier(Reveal(on: shown, delay: 0.18))
                     } else if r.roule, let t = st.curTrip {
                         // en roulant : le trajet en cours à la place des commandes (le tracé prend la place libre)
                         TrajetEnCours(t: t, odo: r.data?.odo, soc: r.data?.soc ?? r.data?.socBms)
@@ -274,7 +276,8 @@ struct VoiturePage: View {
                     if charge, let c = st.curCharge, (c.samples?.count ?? 0) >= 2 {
                         ChargeCurveCard(c: c).modifier(Reveal(on: shown, delay: 0.24))
                     }
-                    if let pk = st.parking, !r.roule {
+                    // emplacement : inutile en roulant, et pendant une recharge à la maison (la voiture est chez toi)
+                    if let pk = st.parking, !r.roule, !rechargeMaison {
                         ParkingCard(pk: pk).modifier(Reveal(on: shown, delay: 0.24))
                             .layoutValue(key: PleinePage.Role.self, value: .carte(min: dts.isAccessibilitySize ? 170 : 120))
                     }
