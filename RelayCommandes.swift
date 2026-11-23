@@ -63,21 +63,31 @@ extension BLERelay {
         }
     }
 
-    func applyCadence(main: Int, extra: Int) {
-        ud.set(main, forKey: "cfgMain"); ud.set(extra, forKey: "cfgExtra")
-        st.note("Cadences : \(main) s / \(extra) s")
+    func applyCadence(main: Int, extra: Int, drive: Int) {
+        ud.set(main, forKey: "cfgMain"); ud.set(extra, forKey: "cfgExtra"); ud.set(drive, forKey: "cfgDrive")
+        st.note("Cadences : \(main) s / \(extra) s / \(drive == 0 ? "pas de cadence en roulant" : "\(drive) s en roulant")")
         if bleReady, let p = peripheral, let ch = cmdChar {
-            p.writeValue(Data("cfg:\(main),\(extra)".utf8), for: ch, type: .withResponse)
+            p.writeValue(Data(cadenceCmd.utf8), for: ch, type: .withResponse)
+        } else {
+            ud.set(true, forKey: "cfgPending")          // renvoyé à l'ESP32 à la prochaine connexion Bluetooth
         }
-        postCommand(["cfg": ["main": main, "extra": extra]]) { ok in
+        postCommand(["cfg": ["main": main, "extra": extra, "drive": drive]]) { ok in
             if !self.bleReady { self.show(ok ? "Cadences enregistrées, appliquées au prochain contact avec l'ESP32" : "Home Assistant injoignable") }
         }
+    }
+
+    /// "cfg:<principal>,<secondaire>,<roulant>" : un ESP32 en ws-2.5 ou avant ignore le 3e nombre
+    var cadenceCmd: String {
+        "cfg:\(ud.integer(forKey: "cfgMain")),\(ud.integer(forKey: "cfgExtra")),\(ud.integer(forKey: "cfgDrive"))"
     }
 
     func handleAck(_ ack: String, ok: Bool, _ o: [String: Any]) {
         switch ack {
         case "cfg":
-            show(ok ? "Cadences appliquées : \(o["main"] ?? "?") s / \(o["extra"] ?? "?") s" : "Cadences refusées")
+            if ok { ud.set(false, forKey: "cfgPending") }
+            let roulant = (o["drive"] as? Int).map { $0 == 0 ? " · pas de cadence en roulant" : " · \($0) s en roulant" }
+                ?? " · cadence en roulant non gérée (firmware à mettre à jour)"
+            show(ok ? "Cadences appliquées : \(o["main"] ?? "?") s / \(o["extra"] ?? "?") s" + roulant : "Cadences refusées")
         case "net", "url":
             if !ok { netQueue.removeAll(); show("L'ESP32 a refusé un réglage réseau"); return }
             if netQueue.isEmpty { st.note("Réseaux de l'ESP32 mis à jour"); show("Réseaux enregistrés dans l'ESP32 ✓"); espReadNets() } else { nextNet() }
@@ -134,6 +144,11 @@ extension BLERelay {
     func locationManager(_ m: CLLocationManager, didUpdateLocations l: [CLLocation]) {
         loc = l.last; hasGPS = true
         if let x = loc { st.addPoint(x) }
+        // Vitesse en direct : le GPS de l'iPhone donne ~1 mesure/s, sans attendre le prochain envoi de l'ESP32
+        if connected, var k = data, ["D", "R", "N"].contains(k.gear ?? ""), let x = loc, x.speed >= 0 {
+            let v = Int(x.speed * 3.6)                    // même calcul qu'à la réception des données de l'ESP32
+            if v != k.speed { k.speed = v; data = k }
+        }
     }
 
     func withLocation(_ d: Data) -> Data {

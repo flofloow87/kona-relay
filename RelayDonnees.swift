@@ -145,7 +145,10 @@ extension BLERelay {
         if eco { return }                           // mode économie : GPS déjà réduit
         if mv {
             parkedSince = nil
-            if lm.desiredAccuracy != kCLLocationAccuracyBest { lm.desiredAccuracy = kCLLocationAccuracyBest; lm.distanceFilter = 10 }
+            // en roulant : chaque mesure GPS (~1/s), même à basse vitesse, pour la vitesse en direct
+            if lm.desiredAccuracy != kCLLocationAccuracyBest || lm.distanceFilter != kCLDistanceFilterNone {
+                lm.desiredAccuracy = kCLLocationAccuracyBest; lm.distanceFilter = kCLDistanceFilterNone
+            }
         } else {
             if parkedSince == nil { parkedSince = Date() }
             if let p = parkedSince, Date().timeIntervalSince(p) > 120, lm.desiredAccuracy != kCLLocationAccuracyHundredMeters {

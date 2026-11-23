@@ -18,6 +18,7 @@ struct SettingsView: View {
     @AppStorage("cmdWebhook") private var cmdWebhook = ""
     @AppStorage("cfgMain") private var cfgMain = 60
     @AppStorage("cfgExtra") private var cfgExtra = 300
+    @AppStorage("cfgDrive") private var cfgDrive = 3
     @AppStorage("prixMaison") private var prixMaison = 0.21
     @AppStorage("prixBorne") private var prixBorne = 0.45
     @AppStorage("consoDefaut") private var consoDefaut = 15.5
@@ -27,6 +28,7 @@ struct SettingsView: View {
     @AppStorage("ecoSeuil") private var ecoSeuil = 20
     @State private var main = 60
     @State private var extra = 300
+    @State private var drive = 3
     @State private var fw: Data?
     @State private var fwName = ""
     @State private var pick = false
@@ -41,16 +43,24 @@ struct SettingsView: View {
                     Stepper(value: $extra, in: 30...3600, step: extra < 300 ? 30 : 60) {
                         LabeledContent("Secondaires", value: "toutes les \(duree(extra))")
                     }
+                    // 0 = désactivée, sinon 2 à 30 s (l'ESP32 n'accepte pas 1 s)
+                    Stepper {
+                        LabeledContent("En roulant", value: drive == 0 ? "désactivée" : "toutes les \(duree(drive))")
+                    } onIncrement: {
+                        drive = drive == 0 ? 2 : min(drive + 1, 30)
+                    } onDecrement: {
+                        drive = drive <= 2 ? 0 : drive - 1
+                    }
                     Button {
-                        r.applyCadence(main: main, extra: extra)
+                        r.applyCadence(main: main, extra: extra, drive: drive)
                     } label: {
                         Label("Appliquer", systemImage: "checkmark.circle.fill")
                     }
-                    .disabled(main == cfgMain && extra == cfgExtra)
+                    .disabled(main == cfgMain && extra == cfgExtra && drive == cfgDrive)
                 } header: {
                     Text("Fréquence de rafraîchissement")
                 } footer: {
-                    Text("Principales : SOC, puissance, tension, 12 V, rapport, ouvrants. Secondaires : pneus, habitacle, cellules. Envoyé à l'ESP32 en Bluetooth s'il est connecté, et à Home Assistant pour la prochaine connexion WiFi.")
+                    Text("Principales : SOC, puissance, tension, 12 V, rapport, ouvrants. Secondaires : pneus, habitacle, cellules. En roulant : les principales en direct dans l'app, voiture en D, R ou N et ESP32 connecté en Bluetooth (firmware ws-2.6 ou plus) ; Home Assistant et l'historique des trajets restent à la cadence principale. Envoyé à l'ESP32 en Bluetooth s'il est connecté, sinon à sa prochaine connexion.")
                 }
 
                 Section {
@@ -188,7 +198,7 @@ struct SettingsView: View {
             .navigationTitle("Réglages")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("OK") { dismiss() } } }
-            .onAppear { main = cfgMain; extra = cfgExtra }
+            .onAppear { main = cfgMain; extra = cfgExtra; drive = cfgDrive }
             .fileImporter(isPresented: $pick, allowedContentTypes: [.item]) { res in
                 guard case .success(let url) = res else { return }
                 let ok = url.startAccessingSecurityScopedResource()

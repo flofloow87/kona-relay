@@ -442,6 +442,7 @@ struct PlusPage: View {
     let ouvrirReglages: () -> Void
     @AppStorage("cfgMain") private var cfgMain = 60
     @AppStorage("cfgExtra") private var cfgExtra = 300
+    @AppStorage("cfgDrive") private var cfgDrive = 3
     @State private var shown = false
 
     var body: some View {
@@ -456,7 +457,7 @@ struct PlusPage: View {
                             row("location.fill", "Position GPS", r.hasGPS ? "Active" : "En attente")
                             row("point.topleft.down.to.point.bottomright.curvepath.fill", "Trajets synchronisés",
                                 r.tripSync.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "—")
-                            row("timer", "Cadences", "\(duree(cfgMain)) · \(duree(cfgExtra))")
+                            row("timer", "Cadences", "\(duree(cfgMain)) · \(duree(cfgExtra))" + (cfgDrive > 0 ? " · \(duree(cfgDrive)) en roulant" : ""))
                             if r.pendingCount > 0 { row("icloud.slash", "Sauvegardes en attente", "\(r.pendingCount)") }
                         }
                     }

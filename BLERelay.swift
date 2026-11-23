@@ -62,6 +62,7 @@ final class BLERelay: NSObject, ObservableObject, CBCentralManagerDelegate, CBPe
     var ackChar: CBCharacteristic?
     var otaChar: CBCharacteristic?
     var lastPost = Date.distantPast
+    var lastFullPost = Date.distantPast   // dernière lecture complète postée (cadence rapide en roulant)
     var lastPostOK = true
     var buf = Data()
     let ud = UserDefaults.standard
@@ -79,7 +80,7 @@ final class BLERelay: NSObject, ObservableObject, CBCentralManagerDelegate, CBPe
 
     private override init() {
         super.init()
-        ud.register(defaults: ["minInterval": 0.0, "cfgMain": 60, "cfgExtra": 300, "consoDefaut": 15.5, "prixMaison": 0.21, "prixBorne": 0.45, "socCible": 80, "ecoAuto": true, "ecoSeuil": 20])
+        ud.register(defaults: ["minInterval": 0.0, "cfgMain": 60, "cfgExtra": 300, "cfgDrive": 3, "consoDefaut": 15.5, "prixMaison": 0.21, "prixBorne": 0.45, "socCible": 80, "ecoAuto": true, "ecoSeuil": 20])
         if let d = ud.data(forKey: "lastData") { data = try? JSONDecoder().decode(KonaData.self, from: d) }
         tripSync = ud.object(forKey: "tripSync") as? Date
         pendingCount = pendingLoad().count
@@ -97,7 +98,7 @@ final class BLERelay: NSObject, ObservableObject, CBCentralManagerDelegate, CBPe
     /// Aperçus Xcode uniquement (Apercus.swift) : instance isolée, sans Bluetooth, GPS ni notifications
     init(apercu k: KonaData?, connecte: Bool) {
         super.init()
-        ud.register(defaults: ["cfgMain": 60, "cfgExtra": 300, "consoDefaut": 15.5, "prixMaison": 0.21, "prixBorne": 0.45, "socCible": 80])
+        ud.register(defaults: ["cfgMain": 60, "cfgExtra": 300, "cfgDrive": 3, "consoDefaut": 15.5, "prixMaison": 0.21, "prixBorne": 0.45, "socCible": 80])
         data = k
         connected = connecte
         status = connecte ? "Connecté à la Kona" : "Recherche de l'ESP32"
@@ -186,7 +187,11 @@ final class BLERelay: NSObject, ObservableObject, CBCentralManagerDelegate, CBPe
         let was = connected
         connected = ch.isNotifying
         status = connected ? "Connecté en Bluetooth" : "En attente de la Kona"
-        if connected && !was { st.note("Connecté à l'ESP32"); notify("Kona connectée, relais actif") }
+        if connected && !was {
+            st.note("Connecté à l'ESP32"); notify("Kona connectée, relais actif")
+            // cadences réglées pendant que l'ESP32 n'était pas joignable en Bluetooth
+            if ud.bool(forKey: "cfgPending"), let c = cmdChar { p.writeValue(Data(cadenceCmd.utf8), for: c, type: .withResponse) }
+        }
     }
 
     func peripheral(_ p: CBPeripheral, didUpdateValueFor ch: CBCharacteristic, error: Error?) {
@@ -197,6 +202,7 @@ final class BLERelay: NSObject, ObservableObject, CBCentralManagerDelegate, CBPe
             let d = buf.subdata(in: buf.startIndex..<nl)
             buf.removeSubrange(buf.startIndex...nl)
             guard !d.isEmpty else { continue }
+            var complete = false, roule = false                 // lecture complète, voiture en D ou R
             if let o = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] {
                 if let ack = o["ack"] as? String { handleAck(ack, ok: o["ok"] as? Bool ?? false, o); continue }
                 if let kind = o["trip"] as? String { relayTrip(d, ack: kind == "done" ? "done" : "\(o["part"] ?? "")", p: p); continue }
@@ -206,6 +212,7 @@ final class BLERelay: NSObject, ObservableObject, CBCentralManagerDelegate, CBPe
                     data = k
                     if let e = try? JSONEncoder().encode(k) { ud.set(e, forKey: "lastData") }
                     afterData(k, quick: false)
+                    complete = true; roule = ["D", "R"].contains(k.gear ?? "")
                 } else if let g = o["g"] as? String, var k = data {      // envoi rapide : rapport, 12 V
                     k.gear = g == "-" || g == "?" ? nil : g
                     if let v = o["v12d"] as? Double { k.v12d = v }
@@ -214,7 +221,14 @@ final class BLERelay: NSObject, ObservableObject, CBCentralManagerDelegate, CBPe
                 }
             }
             let minI = eco ? max(ud.double(forKey: "minInterval"), 120) : ud.double(forKey: "minInterval")
-            if Date().timeIntervalSince(lastPost) >= minI { post(withLocation(d)) }
+            // cadence rapide en roulant : affichée dans l'app à chaque lecture, mais postée à Home Assistant
+            // au plus une fois par cadence principale (comme avant). Les envois rapides (rapport, 12 V) passent toujours.
+            let espace = Double(max(ud.integer(forKey: "cfgMain") - 2, 5))
+            if complete && roule && ud.integer(forKey: "cfgDrive") > 0 && Date().timeIntervalSince(lastFullPost) < espace { continue }
+            if Date().timeIntervalSince(lastPost) >= minI {
+                if complete && roule { lastFullPost = Date() }   // la 1re lecture en D/R après P part toujours
+                post(withLocation(d))
+            }
         }
     }
 

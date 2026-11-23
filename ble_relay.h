@@ -84,7 +84,7 @@ class CCb : public NimBLECharacteristicCallbacks {
   }
 };
 
-inline void reset() { pendW = pendR = ackW = ackR = 0; conn = 0xFFFF; connected = false; ready = false; }
+inline void reset() { pendW = 0; pendR = 0; ackW = 0; ackR = 0; conn = 0xFFFF; connected = false; ready = false; }
 
 inline void begin() {
   if (active) return;

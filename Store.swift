@@ -124,9 +124,12 @@ final class Store: ObservableObject {
             if let d = k.ced, let c = k.cec, let d0 = cedStart, let c0 = cecStart { t.kwh = kwhBase + max(0, (d - d0) - (c - c0)) }
             if let v = k.speed { t.maxKmh = max(t.maxKmh, v) }
             var sm = t.samples ?? []
-            sm.append(TripSample(s: Int(Date().timeIntervalSince(t.start)), kw: k.kw ?? 0, soc: soc, kmh: k.speed))
-            if sm.count > 2000 { sm.removeFirst() }
-            t.samples = sm
+            let s = Int(Date().timeIntervalSince(t.start))
+            if sm.last.map({ s - $0.s >= 9 }) ?? true {          // cadence rapide en roulant : un point toutes les 9 s au plus
+                sm.append(TripSample(s: s, kw: k.kw ?? 0, soc: soc, kmh: k.speed))
+                if sm.count > 2000 { sm.removeFirst() }
+                t.samples = sm
+            }
             curTrip = t
         }
         if k.charging {
